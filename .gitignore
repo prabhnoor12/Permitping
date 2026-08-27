@@ -1,0 +1,8 @@
+target/
+.m2/
+data/*.db
+data/*.db-*
+data/documents/
+data/backups/
+.idea/
+*.iml
