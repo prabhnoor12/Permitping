@@ -12,6 +12,7 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Split document details panel with file, version history, archive, renew, and edit actions.
 - Manage profiles with edit, archive, restore, delete, contact validation, detail summaries, and notification preferences.
 - Manage separate email/SMS reminder subscriptions with explicit consent evidence, local suppression controls, unsubscribe history, and provider opt-out enforcement.
+- Create secure, expiring subcontractor upload requests; accept or reject submitted files from a review inbox before they become compliance evidence.
 - Assign and unassign contractors from projects with readiness status and issue details.
 - Project readiness tracking with Ready, At Risk, and Blocked states, plus configurable per-project requirement templates enforced against each assigned subcontractor.
 - Global search across documents, profiles, projects, and assignments, with locally saved search filters.
@@ -38,6 +39,10 @@ $env:PERMITPING_SENDGRID_UNSUBSCRIBE_GROUP_ID = "12345"
 $env:PERMITPING_TWILIO_ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 $env:PERMITPING_TWILIO_AUTH_TOKEN = "your-twilio-auth-token"
 $env:PERMITPING_TWILIO_FROM_NUMBER = "+15557654321"
+$env:PERMITPING_UPLOAD_ENABLED = "true"
+$env:PERMITPING_UPLOAD_BIND_ADDRESS = "127.0.0.1"
+$env:PERMITPING_UPLOAD_PORT = "8765"
+$env:PERMITPING_UPLOAD_BASE_URL = "https://compliance.your-company.example"
 ```
 
 Create a Twilio account, obtain an Account SID and Auth Token, and verify or purchase the sending number shown in `PERMITPING_TWILIO_FROM_NUMBER`. The sending number and recipient numbers must be valid for your Twilio account and region. The application sends only to profiles with notification delivery enabled, a recorded subscription for the selected channel, the selected contact channel configured, and a document linked to that profile ID. The profile delivery toggle and channel subscription are separate safeguards. New or existing profiles are not automatically subscribed; a manager must record the recipient's express consent and its source in **Manage subscriptions**. Unchecking a channel suppresses it, and all subscribe/unsubscribe changes are retained in the local database and audit history.
@@ -45,6 +50,12 @@ Create a Twilio account, obtain an Account SID and Auth Token, and verify or pur
 SendGrid unsubscribe groups must be configured before email can be sent. PermitPing adds SendGrid's `%asm_group_unsubscribe_url%` tag and the configured `asm.group_id` to each email. Twilio SMS includes `Reply STOP to unsubscribe` and `Reply HELP for help`; a Twilio opt-out response (error 21610) is recorded as a local SMS unsubscribe. Email and SMS delivery attempts are tracked independently, so a failed SMS can retry without resending a successful email. Successful delivery is marked as sent; failures remain visible and retryable. Do not commit API keys or put them in the database. Persist the variables as Windows user environment variables if PermitPing will run through Task Scheduler.
 
 These controls are product safeguards, not legal advice. The operator remains responsible for obtaining valid consent, preserving evidence, honoring applicable country/state rules, and configuring provider sender registration. PermitPing has no hosted inbound webhook, so an email unsubscribe performed in SendGrid is enforced by SendGrid but is not automatically copied into the local subscription table; use **Manage subscriptions** to keep the local record aligned. Twilio's provider opt-out remains authoritative for SMS.
+
+## Subcontractor self-upload
+
+The upload portal is disabled unless `PERMITPING_UPLOAD_ENABLED` is `true`. In the Assignments page, select an approved subcontractor and choose **Request documents**. PermitPing creates a per-request random token; only its SHA-256 hash is stored in SQLite. Links expire after 1–90 days, can be revoked, accept only PDF/image/Word files up to 10 MB, and never expose the local database path. Uploaded files enter **Review uploads** as pending and do not affect clearance until a reviewer accepts them and supplies the expiration date.
+
+The default bind address is loopback for safety. To let an external subcontractor reach the portal, deploy the application on a reachable host, set `PERMITPING_UPLOAD_BIND_ADDRESS` appropriately, set `PERMITPING_UPLOAD_BASE_URL` to the public HTTPS URL, and place TLS termination, firewall rules, authentication/network controls, and rate limiting in front of the embedded endpoint. The embedded endpoint is an intake component, not a production cloud hosting service.
 
 ## Run locally on Windows
 
@@ -82,16 +93,16 @@ The database is created at `data/permitping.db`, managed files are stored under 
 
 ```text
 ui/             JavaFX pages, dialogs, controls, and notifications
-domain/         Documents, profiles, assignments, readiness, reminders, delivery records, users, and roles
+domain/         Documents, profiles, assignments, readiness, reminders, upload requests, delivery records, users, and roles
 application/    Services, validation, delivery boundaries, repository contracts
-infrastructure/ SQLite repositories, backups, file storage, SendGrid integration
+infrastructure/ SQLite repositories, backups, file storage, upload portal, SendGrid integration
 ```
 
 `App` is the composition root. `MainView` assembles the workspace, navigation, reminder delivery service, subscription service, SendGrid adapter, and Twilio adapter. Application services own validation and business rules; repositories isolate SQLite; UI pages do not issue SQL directly. `ReminderDeliveryService` coordinates profile eligibility, subscription enforcement, message creation, independent email/SMS provider calls, channel-specific idempotency, and delivery history.
 
 ## Database migrations
 
-SQLite schema upgrades run automatically through `PRAGMA user_version`. Existing databases receive new columns and tables without being recreated. Current migrations include archived records, profile IDs for document holders, notification preferences, reminder delivery history, authentication users, persisted roles, and per-channel notification subscriptions with append-only subscription events. The initial schema also includes document versions, requirement templates, project-template assignments, reminder settings, and assignment storage.
+SQLite schema upgrades run automatically through `PRAGMA user_version`. Existing databases receive new columns and tables without being recreated. Current migrations include archived records, profile IDs for document holders, notification preferences, reminder delivery history, authentication users, persisted roles, per-channel notification subscriptions with append-only subscription events, and upload requests/submissions. The initial schema also includes document versions, requirement templates, project-template assignments, reminder settings, and assignment storage.
 
 Create a verified backup bundle before manually changing or moving the database or managed files. Restoring a bundle keeps safety copies of the previous database and document directory next to the active data.
 
@@ -103,7 +114,7 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 78 passing tests.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token and review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 80 passing tests.
 
 ## Operational notes
 
@@ -116,7 +127,7 @@ The suite covers document validation and expiry rules, profile validation and li
 - Reminder checks run while PermitPing is open; the optional Windows startup task launches the app at user logon so those checks can begin automatically.
 - Activity History currently records backup-related audit events; reminder delivery has its own detailed history page. Users with audit permission can open Activity history directly from the main navigation.
 - PermitPing now requires a local sign-in before opening the workspace; the first launch creates the initial administrator account. Role permissions control workspace navigation and mutation controls. Built-in roles, custom roles, and permission checks are implemented in the domain/application and SQLite layers, with administrator user-management screens available from System settings. Users can change their own password, and administrators can reset another user's password.
-- The application currently has no hosted API, encrypted cloud storage, templated HTML email, provider webhook synchronization, or provider retry queue.
+- The application currently has no hosted cloud API, encrypted cloud storage, templated HTML email, provider webhook synchronization, or provider retry queue. The optional embedded upload endpoint must be fronted by an HTTPS-capable deployment boundary before external use.
 
 ## License
 
