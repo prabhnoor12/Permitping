@@ -4,6 +4,7 @@ import com.permitping.domain.*;
 import com.permitping.infrastructure.*;
 import org.junit.jupiter.api.Test;
 import java.nio.file.*;
+import java.sql.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.stream.Stream;
@@ -46,6 +47,28 @@ class PersistenceTest {
             var loaded = repo.findAll();
             assertEquals(1, loaded.size()); assertEquals(ProfileType.COMPANY, loaded.get(0).type()); assertEquals("office@example.com", loaded.get(0).email());
         } finally { Files.deleteIfExists(db); Files.deleteIfExists(Path.of(db+"-wal")); Files.deleteIfExists(Path.of(db+"-shm")); }
+    }
+
+    @Test void notificationSubscriptionPersistsCurrentStateAndHistory() throws Exception {
+        Path db = Files.createTempFile("permitping-subscription-test-", ".db");
+        try {
+            Database database = new Database(db);
+            var profiles = new SqliteProfileRepository(database);
+            profiles.save(new Profile(0, "Consent Co", ProfileType.COMPANY, "crew@example.com", "+15551234567", ""));
+            long profileId = profiles.findAll().get(0).id();
+            var subscriptions = new SqliteNotificationSubscriptionRepository(database);
+            var service = new com.permitping.application.NotificationSubscriptionService(subscriptions, null);
+
+            service.subscribe(profileId, NotificationChannel.EMAIL, "signed form");
+            service.unsubscribe(profileId, NotificationChannel.EMAIL, "recipient request");
+
+            assertFalse(service.isSubscribed(profileId, NotificationChannel.EMAIL));
+            assertEquals(SubscriptionStatus.UNSUBSCRIBED, subscriptions.find(profileId, NotificationChannel.EMAIL).orElseThrow().status());
+            try (Connection c = database.connect(); PreparedStatement p = c.prepareStatement("SELECT COUNT(*) FROM notification_subscription_events WHERE profile_id=?")) {
+                p.setLong(1, profileId);
+                try (ResultSet r = p.executeQuery()) { assertTrue(r.next()); assertEquals(2, r.getInt(1)); }
+            }
+        } finally { Files.deleteIfExists(db); Files.deleteIfExists(Path.of(db + "-wal")); Files.deleteIfExists(Path.of(db + "-shm")); }
     }
 
     @Test void profileDeletionProtectsLinkedDocuments() throws Exception {

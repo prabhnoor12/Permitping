@@ -12,24 +12,35 @@ public final class ReminderDeliveryService {
     private final ReminderDeliveryRepository deliveries;
     private final EmailSender emailSender;
     private final SmsSender smsSender;
+    private final NotificationSubscriptionService subscriptions;
     private final Clock clock;
 
     public ReminderDeliveryService(ReminderService reminders, ProfileService profiles,
                                    ReminderDeliveryRepository deliveries, EmailSender emailSender) {
-        this(reminders, profiles, deliveries, emailSender, null, Clock.systemDefaultZone());
+        this(reminders, profiles, deliveries, emailSender, null, null, Clock.systemDefaultZone());
     }
     public ReminderDeliveryService(ReminderService reminders, ProfileService profiles,
                                    ReminderDeliveryRepository deliveries, EmailSender emailSender, SmsSender smsSender) {
-        this(reminders, profiles, deliveries, emailSender, smsSender, Clock.systemDefaultZone());
+        this(reminders, profiles, deliveries, emailSender, smsSender, null, Clock.systemDefaultZone());
     }
     public ReminderDeliveryService(ReminderService reminders, ProfileService profiles,
                                    ReminderDeliveryRepository deliveries, EmailSender emailSender, Clock clock) {
-        this(reminders, profiles, deliveries, emailSender, null, clock);
+        this(reminders, profiles, deliveries, emailSender, null, null, clock);
     }
     public ReminderDeliveryService(ReminderService reminders, ProfileService profiles,
                                    ReminderDeliveryRepository deliveries, EmailSender emailSender, SmsSender smsSender, Clock clock) {
+        this(reminders, profiles, deliveries, emailSender, smsSender, null, clock);
+    }
+    public ReminderDeliveryService(ReminderService reminders, ProfileService profiles,
+                                   ReminderDeliveryRepository deliveries, EmailSender emailSender,
+                                   SmsSender smsSender, NotificationSubscriptionService subscriptions) {
+        this(reminders, profiles, deliveries, emailSender, smsSender, subscriptions, Clock.systemDefaultZone());
+    }
+    public ReminderDeliveryService(ReminderService reminders, ProfileService profiles,
+                                   ReminderDeliveryRepository deliveries, EmailSender emailSender,
+                                   SmsSender smsSender, NotificationSubscriptionService subscriptions, Clock clock) {
         this.reminders = reminders; this.profiles = profiles; this.deliveries = deliveries;
-        this.emailSender = emailSender; this.smsSender = smsSender; this.clock = clock;
+        this.emailSender = emailSender; this.smsSender = smsSender; this.subscriptions = subscriptions; this.clock = clock;
     }
     public synchronized List<ReminderDelivery> sendPending() {
         List<ReminderDelivery> results = new ArrayList<>();
@@ -59,6 +70,13 @@ public final class ReminderDeliveryService {
     }
     private ChannelResult deliver(Document document, Profile profile, ReminderNotice notice, String channel, String recipient, Object sender, String missingRecipientReason) {
         if (deliveries.hasSuccessfulDelivery(document.id(), profile.id(), notice.daysBeforeExpiry(), document.expiresOn(), channel)) return new ChannelResult(true, null);
+        if (subscriptions != null && !subscriptions.isSubscribed(profile.id(), NotificationChannel.valueOf(channel))) {
+            String reason = "Recipient is not subscribed to " + channel.toLowerCase(java.util.Locale.ROOT) + " reminders.";
+            if (!deliveries.hasSkippedDelivery(document.id(), profile.id(), notice.daysBeforeExpiry(), document.expiresOn(), channel, recipient == null ? "" : recipient, reason)) {
+                return new ChannelResult(false, record(document, profile, notice, channel, recipient, DeliveryStatus.SKIPPED, "", reason, 0));
+            }
+            return new ChannelResult(false, null);
+        }
         if (recipient == null || recipient.isBlank()) {
             if (!deliveries.hasSkippedDelivery(document.id(), profile.id(), notice.daysBeforeExpiry(), document.expiresOn(), channel, "", missingRecipientReason)) {
                 return new ChannelResult(false, record(document, profile, notice, channel, "", DeliveryStatus.SKIPPED, "", missingRecipientReason, 0));
@@ -71,6 +89,9 @@ public final class ReminderDeliveryService {
                     : sender instanceof SmsSender sms ? sms.send(new OutgoingMessage(recipient, "PermitPing reminder: " + document.name(), notice.message(clock)))
                     : DeliveryResult.failed(channel + " delivery is not configured.");
         } catch (RuntimeException ex) { result = DeliveryResult.failed(ex.getMessage()); }
+        if (!result.successful() && "SMS".equals(channel) && result.errorMessage() != null && result.errorMessage().contains("21610") && subscriptions != null) {
+            try { subscriptions.unsubscribe(profile.id(), NotificationChannel.SMS, "twilio-stop"); } catch (RuntimeException ignored) { }
+        }
         return new ChannelResult(result.successful(), record(document, profile, notice, channel, recipient, result.successful() ? DeliveryStatus.SENT : DeliveryStatus.FAILED, result.providerMessageId(), result.errorMessage(), 1));
     }
     private ReminderDelivery record(Document document, Profile profile, ReminderNotice notice, String channel, String recipient, DeliveryStatus status, String providerId, String error, int attempts) {

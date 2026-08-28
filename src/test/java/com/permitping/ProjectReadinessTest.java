@@ -59,6 +59,42 @@ class ProjectReadinessTest {
         }
     }
 
+    @Test void assignedProjectWithNoDocumentsIsVisibleAndBlocked() throws Exception {
+        DocumentService documents = new DocumentService(new InMemoryRepository(new ArrayList<>()), CLOCK);
+        AssignmentService assignments = new AssignmentService(new AssignmentRepository() {
+            public List<ProjectAssignment> findAll() { return List.of(new ProjectAssignment(1, "Empty Job", 7, AssignmentStatus.APPROVED, "")); }
+            public void save(ProjectAssignment assignment) { }
+        });
+
+        ProjectReadinessService readiness = new ProjectReadinessService(documents, new FileStorage(Files.createTempDirectory("permitping-empty-project")), CLOCK, null, assignments);
+
+        ProjectReadiness result = readiness.list().get(0);
+        assertEquals("Empty Job", result.project());
+        assertEquals(ProjectReadinessStatus.BLOCKED, result.status());
+        assertTrue(result.issueSummary().contains("No compliance documents"));
+    }
+
+    @Test void projectIsBlockedWhenAnAssignedSubcontractorIsNotCleared() throws Exception {
+        Profile profile = new Profile(7, "Northside Electric", ProfileType.COMPANY, "", "", "");
+        DocumentService documents = new DocumentService(new InMemoryRepository(new ArrayList<>(List.of(
+            document("Other contractor license", "Shared Job", 90, null)
+        ))), CLOCK);
+        AssignmentService assignments = new AssignmentService(new AssignmentRepository() {
+            public List<ProjectAssignment> findAll() { return List.of(new ProjectAssignment(1, "Shared Job", 7, AssignmentStatus.APPROVED, "")); }
+            public void save(ProjectAssignment assignment) { }
+        });
+        ProfileService profiles = new ProfileService(new ProfileRepository() {
+            public List<Profile> findAll() { return List.of(profile); }
+            public void save(Profile value) { }
+        });
+        FileStorage files = new FileStorage(Files.createTempDirectory("permitping-shared-project"));
+        ClearanceService clearance = new ClearanceService(assignments, profiles, documents, files, CLOCK);
+        ProjectReadiness result = new ProjectReadinessService(documents, files, CLOCK, null, assignments, clearance).list().get(0);
+
+        assertEquals(ProjectReadinessStatus.BLOCKED, result.status());
+        assertTrue(result.issueSummary().contains("Northside Electric is blocked"));
+    }
+
     private static Document document(String name, String project, long days, String path) {
         return new Document(0, name, "Permit", "Test Holder", project,
             LocalDate.of(2026, 8, 26).plusDays(days), path, "");

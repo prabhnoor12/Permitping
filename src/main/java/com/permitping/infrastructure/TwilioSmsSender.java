@@ -19,6 +19,7 @@ public final class TwilioSmsSender implements SmsSender {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Pattern SID = Pattern.compile("\\\"sid\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+    private static final Pattern OPTOUT = Pattern.compile("\\\"code\\\"\\s*:\\s*21610");
     private final String accountSid;
     private final String authToken;
     private final String fromNumber;
@@ -49,15 +50,20 @@ public final class TwilioSmsSender implements SmsSender {
         if (message == null || message.recipient() == null || message.recipient().isBlank()) return DeliveryResult.failed("Recipient phone number is missing.");
         if (message.body() == null || message.body().isBlank()) return DeliveryResult.failed("SMS message is empty.");
         String endpoint = "https://api.twilio.com/2010-04-01/Accounts/" + accountSid + "/Messages.json";
-        String form = form("To", message.recipient()) + "&" + form("From", fromNumber) + "&" + form("Body", message.body());
+        String body = "PermitPing: " + message.body() + "\nReply STOP to unsubscribe. Reply HELP for help.";
+        String form = form("To", message.recipient()) + "&" + form("From", fromNumber) + "&" + form("Body", body);
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint)).timeout(REQUEST_TIMEOUT)
                     .header("Authorization", "Basic " + java.util.Base64.getEncoder().encodeToString((accountSid + ":" + authToken).getBytes(StandardCharsets.UTF_8)))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(form, StandardCharsets.UTF_8)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) return DeliveryResult.failed("SMS provider returned HTTP " + response.statusCode());
-            Matcher matcher = SID.matcher(response.body() == null ? "" : response.body());
+            String responseBody = response.body() == null ? "" : response.body();
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (OPTOUT.matcher(responseBody).find()) return DeliveryResult.failed("Twilio error 21610: recipient has opted out via STOP.");
+                return DeliveryResult.failed("SMS provider returned HTTP " + response.statusCode());
+            }
+            Matcher matcher = SID.matcher(responseBody);
             return DeliveryResult.sent(matcher.find() ? matcher.group(1) : "twilio");
         } catch (Exception ex) {
             return DeliveryResult.failed("SMS delivery failed: " + ex.getMessage());

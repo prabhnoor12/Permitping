@@ -112,6 +112,38 @@ final class ReminderDeliveryServiceTest {
         assertEquals("+15551234567", texts.get(0).recipient()); assertTrue(reminderStore.sent);
     }
 
+    @Test void suppressesAnUnsubscribedChannelWithoutCallingItsProvider() {
+        Document document = document(18, 7);
+        FakeReminderRepository reminderStore = new FakeReminderRepository();
+        FakeDeliveryRepository deliveryStore = new FakeDeliveryRepository();
+        FakeSubscriptionRepository subscriptions = new FakeSubscriptionRepository();
+        subscriptions.subscribed.add("SMS");
+        List<OutgoingMessage> emails = new ArrayList<>(); List<OutgoingMessage> texts = new ArrayList<>();
+        DocumentService documents = new DocumentService(new DocumentRepository() {
+            public List<Document> findAll() { return List.of(document); }
+            public Document save(Document value) { return value; }
+            public void delete(long id) { }
+        }, CLOCK);
+        Profile profile = new Profile(7, "Northside Electric", ProfileType.COMPANY, "crew@example.com", "+15551234567", "", false, true, NotificationChannel.EMAIL_AND_SMS);
+        ProfileService profiles = new ProfileService(new ProfileRepository() {
+            public List<Profile> findAll() { return List.of(profile); }
+            public void save(Profile value) { }
+        });
+        ReminderDeliveryService service = new ReminderDeliveryService(new ReminderService(documents, reminderStore, CLOCK), profiles, deliveryStore,
+            message -> { emails.add(message); return DeliveryResult.sent("email"); },
+            message -> { texts.add(message); return DeliveryResult.sent("sms"); },
+            new NotificationSubscriptionService(subscriptions, null, CLOCK), CLOCK);
+
+        List<ReminderDelivery> result = service.sendPending();
+
+        assertEquals(2, result.size());
+        assertEquals(DeliveryStatus.SKIPPED, result.get(0).status());
+        assertEquals("EMAIL", result.get(0).channel());
+        assertEquals(0, emails.size());
+        assertEquals(1, texts.size());
+        assertFalse(reminderStore.sent, "A blocked channel remains retryable if consent is later recorded");
+    }
+
     private ReminderDeliveryService service(Document document, Profile profile, FakeReminderRepository reminders,
                                             FakeDeliveryRepository deliveries, List<OutgoingMessage> messages, DeliveryResult response) {
         DocumentService documents = new DocumentService(new DocumentRepository() {
@@ -149,5 +181,15 @@ final class ReminderDeliveryServiceTest {
                 && delivery.daysBeforeExpiry() == days && delivery.status() == DeliveryStatus.SKIPPED
                 && delivery.recipient().equals(recipient) && delivery.errorMessage().equals(reason));
         }
+    }
+
+    private static final class FakeSubscriptionRepository implements NotificationSubscriptionRepository {
+        final Set<String> subscribed = new HashSet<>();
+        final Map<String, NotificationSubscription> values = new HashMap<>();
+        public Optional<NotificationSubscription> find(long profileId, NotificationChannel channel) {
+            return subscribed.contains(channel.name()) ? Optional.of(values.computeIfAbsent(channel.name(), ignored -> new NotificationSubscription(profileId, channel, SubscriptionStatus.SUBSCRIBED, LocalDateTime.now(CLOCK), "test"))) : Optional.empty();
+        }
+        public List<NotificationSubscription> findByProfile(long profileId) { return new ArrayList<>(values.values()); }
+        public void save(NotificationSubscription subscription) { values.put(subscription.channel().name(), subscription); if (subscription.status() == SubscriptionStatus.SUBSCRIBED) subscribed.add(subscription.channel().name()); else subscribed.remove(subscription.channel().name()); }
     }
 }
