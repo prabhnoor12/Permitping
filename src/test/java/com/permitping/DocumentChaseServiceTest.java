@@ -120,6 +120,32 @@ final class DocumentChaseServiceTest {
         assertTrue(new SqliteDocumentChaseDeliveryRepository(database).pending(clock.instant().atZone(ZoneOffset.UTC).toLocalDateTime().plusDays(1), 20).isEmpty());
     }
 
+    @Test void doesNotChaseValidLegacyDocumentMatchedByHolderName() {
+        Database database = new Database(temp.resolve("legacy.db"));
+        ProfileService profiles = new ProfileService(new SqliteProfileRepository(database));
+        profiles.save(new Profile(0, "Northside Electric", ProfileType.COMPANY, "office@example.com", "", "", false, true, NotificationChannel.EMAIL));
+        long profileId = profiles.list().get(0).id();
+        AssignmentService assignments = new AssignmentService(new SqliteAssignmentRepository(database));
+        assignments.save(new ProjectAssignment(0, "Oak Street", profileId, AssignmentStatus.APPROVED, ""));
+        RequirementTemplateService templates = new RequirementTemplateService(new SqliteRequirementTemplateRepository(database));
+        templates.assign("Oak Street", templates.list().stream().filter(value -> value.name().equals("Electrical subcontractor")).findFirst().orElseThrow().id());
+        NotificationSubscriptionService subscriptions = new NotificationSubscriptionService(new SqliteNotificationSubscriptionRepository(database), null, CLOCK);
+        subscriptions.subscribe(profileId, NotificationChannel.EMAIL, "signed-form");
+        FileStorage files = new FileStorage(temp.resolve("legacy-files"));
+        DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), CLOCK);
+        documents.save(new Document(0, "Legacy license", "License", "Northside Electric", "Oak Street", LocalDate.of(2027, 8, 26), "", ""));
+        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, files, CLOCK);
+        DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, documents, templates, uploads,
+            files, new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
+            message -> DeliveryResult.sent("email-1"), message -> DeliveryResult.failed("unexpected SMS"), subscriptions, null, CLOCK, true);
+
+        List<DocumentChaseResult> results = chasing.chaseMissing();
+
+        assertEquals(2, results.size());
+        assertTrue(results.stream().noneMatch(value -> value.documentType().equals("License")));
+        assertEquals(2, uploads.recentRequests(20).size());
+    }
+
     private static final class MutableClock extends Clock {
         private Instant current;
 

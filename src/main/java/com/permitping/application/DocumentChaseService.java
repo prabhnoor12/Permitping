@@ -132,7 +132,8 @@ public final class DocumentChaseService {
     private boolean subscribed(long profileId, NotificationChannel channel) { return subscriptions != null && subscriptions.isSubscribed(profileId, channel); }
     private boolean usable(String value) { return value != null && !value.isBlank(); }
     private boolean hasEvidence(Profile profile, String project, String type) {
-        return documents.list().stream().anyMatch(document -> document.holderProfileId() == profile.id()
+        return documents.list().stream().anyMatch(document -> (document.holderProfileId() == profile.id()
+            || (document.holderProfileId() == 0 && same(document.holder(), profile.name())))
             && same(document.project(), project) && same(document.type(), type)
             && document.status(clock) != ComplianceStatus.EXPIRED
             && (document.filePath() == null || document.filePath().isBlank() || files.exists(document.filePath())));
