@@ -32,8 +32,16 @@ public final class SqliteReminderDeliveryRepository implements ReminderDeliveryR
         try(Connection c=database.connect();PreparedStatement p=c.prepareStatement("SELECT 1 FROM reminder_deliveries WHERE document_id=? AND profile_id=? AND days_before=? AND status='SENT' AND expires_on=? LIMIT 1")){p.setLong(1,documentId);p.setLong(2,profileId);p.setInt(3,daysBeforeExpiry);p.setString(4,expiresOn.toString());return p.executeQuery().next();}
         catch(SQLException e){throw new IllegalStateException("Could not check reminder delivery",e);}
     }
+    @Override public boolean hasSuccessfulDelivery(long documentId,long profileId,int daysBeforeExpiry,java.time.LocalDate expiresOn,String channel){
+        try(Connection c=database.connect();PreparedStatement p=c.prepareStatement("SELECT 1 FROM reminder_deliveries WHERE document_id=? AND profile_id=? AND days_before=? AND status='SENT' AND expires_on=? AND channel=? LIMIT 1")){p.setLong(1,documentId);p.setLong(2,profileId);p.setInt(3,daysBeforeExpiry);p.setString(4,expiresOn.toString());p.setString(5,channel);return p.executeQuery().next();}
+        catch(SQLException e){throw new IllegalStateException("Could not check reminder delivery",e);}
+    }
     @Override public boolean hasSkippedDelivery(long documentId,long profileId,int daysBeforeExpiry,java.time.LocalDate expiresOn,String recipient,String reason){
         try(Connection c=database.connect();PreparedStatement p=c.prepareStatement("SELECT 1 FROM reminder_deliveries WHERE document_id=? AND profile_id=? AND days_before=? AND status='SKIPPED' AND expires_on=? AND recipient=? AND error_message=? LIMIT 1")){p.setLong(1,documentId);p.setLong(2,profileId);p.setInt(3,daysBeforeExpiry);p.setString(4,expiresOn.toString());p.setString(5,recipient);p.setString(6,reason);return p.executeQuery().next();}
+        catch(SQLException e){throw new IllegalStateException("Could not check skipped reminder delivery",e);}
+    }
+    @Override public boolean hasSkippedDelivery(long documentId,long profileId,int daysBeforeExpiry,java.time.LocalDate expiresOn,String channel,String recipient,String reason){
+        try(Connection c=database.connect();PreparedStatement p=c.prepareStatement("SELECT 1 FROM reminder_deliveries WHERE document_id=? AND profile_id=? AND days_before=? AND status='SKIPPED' AND expires_on=? AND channel=? AND recipient=? AND error_message=? LIMIT 1")){p.setLong(1,documentId);p.setLong(2,profileId);p.setInt(3,daysBeforeExpiry);p.setString(4,expiresOn.toString());p.setString(5,channel);p.setString(6,recipient);p.setString(7,reason);return p.executeQuery().next();}
         catch(SQLException e){throw new IllegalStateException("Could not check skipped reminder delivery",e);}
     }
     private ReminderDelivery read(ResultSet r)throws SQLException{return new ReminderDelivery(r.getLong("id"),r.getLong("document_id"),r.getLong("profile_id"),r.getInt("days_before"),r.getString("channel"),r.getString("recipient"),DeliveryStatus.valueOf(r.getString("status")),LocalDateTime.parse(r.getString("attempted_at")),r.getString("provider_message_id"),r.getString("error_message"),r.getInt("attempts"));}

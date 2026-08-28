@@ -23,6 +23,7 @@ public final class ProfileService {
         NotificationChannel channel = profile.notificationChannel() == null ? NotificationChannel.NONE : profile.notificationChannel();
         if (profile.notificationsEnabled() && (channel == NotificationChannel.EMAIL || channel == NotificationChannel.EMAIL_AND_SMS) && email.isBlank()) throw new IllegalArgumentException("An email address is required for the selected notification channel");
         if (profile.notificationsEnabled() && (channel == NotificationChannel.SMS || channel == NotificationChannel.EMAIL_AND_SMS) && phone.isBlank()) throw new IllegalArgumentException("A phone number is required for the selected notification channel");
+        if (profile.notificationsEnabled() && (channel == NotificationChannel.SMS || channel == NotificationChannel.EMAIL_AND_SMS) && !phone.matches("\\+[1-9]\\d{7,14}")) throw new IllegalArgumentException("Use an SMS phone number in international format, for example +15551234567");
         if (java.util.stream.Stream.concat(list().stream(), archived().stream()).anyMatch(existing -> (profile.id() == 0 || existing.id() != profile.id()) && existing.name().equalsIgnoreCase(profile.name().trim()))) throw new IllegalArgumentException("A profile with this name already exists");
     }
     public void ensure(String name) {

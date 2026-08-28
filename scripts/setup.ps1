@@ -20,3 +20,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency download or compilation failed.' }
 
 Write-Host 'PermitPing local environment is ready.' -ForegroundColor Green
 Write-Host 'Run .\scripts\test.ps1 to verify or .\scripts\run.ps1 to launch the app.'
+Write-Host 'Optional: install automatic launch at Windows sign-in with .\scripts\install-startup-task.ps1'

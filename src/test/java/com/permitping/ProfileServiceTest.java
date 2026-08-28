@@ -43,6 +43,8 @@ final class ProfileServiceTest {
     @Test void validatesContactDetailsForSelectedNotificationChannel() {
         assertThrows(IllegalArgumentException.class, () -> service.save(new Profile(0, "Email only", ProfileType.COMPANY, "", "", "", false, true, NotificationChannel.EMAIL)));
         assertThrows(IllegalArgumentException.class, () -> service.save(new Profile(0, "Sms only", ProfileType.COMPANY, "", "", "", false, true, NotificationChannel.SMS)));
+        assertThrows(IllegalArgumentException.class, () -> service.save(new Profile(0, "Local phone", ProfileType.COMPANY, "", "555-0100", "", false, true, NotificationChannel.SMS)));
+        service.save(new Profile(0, "International phone", ProfileType.COMPANY, "", "+15551234567", "", false, true, NotificationChannel.SMS));
     }
 
     @Test void archivesProfilesOutOfActiveList() {

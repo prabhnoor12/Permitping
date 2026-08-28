@@ -17,7 +17,7 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Configure reminder thresholds, snooze reminders, manually send pending reminders, and review delivery history.
 - Administrator-only user and role management, including account activation, role assignment, and custom permissions.
 - Sign out and re-authenticate without restarting the application; navigation validates that the signed-in account is still active.
-- Optional SendGrid email delivery with sent, failed, and skipped tracking.
+- Optional SendGrid email and Twilio SMS delivery with sent, failed, and skipped tracking.
 - CSV exports for active documents, expiring documents, and assignment readiness.
 - Verified local backup bundles containing the SQLite database and managed documents, backup restore with safety copies, and backup activity history.
 - Local audit history for backup operations and detailed reminder-delivery records including attempts, provider IDs, recipients, and failure details.
@@ -26,16 +26,19 @@ The current JavaFX workspace exposes Dashboard, All documents, Profiles, Assignm
 
 ## Reminder delivery
 
-Contractor notification is opt-in per profile. Edit a profile and enable **Allow reminder delivery**, then choose Email, SMS, both, or no notification. SMS is currently stored as a preference but is not yet connected to an SMS provider; email delivery is supported through SendGrid.
+Contractor notification is opt-in per profile. Edit a profile and enable **Allow reminder delivery**, then choose Email, SMS, both, or no notification. SMS phone numbers must use international E.164 format, such as `+15551234567`.
 
 Set these environment variables before running the application:
 
 ```powershell
 $env:PERMITPING_SENDGRID_API_KEY = "your-sendgrid-api-key"
 $env:PERMITPING_FROM_EMAIL = "compliance@your-company.example"
+$env:PERMITPING_TWILIO_ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+$env:PERMITPING_TWILIO_AUTH_TOKEN = "your-twilio-auth-token"
+$env:PERMITPING_TWILIO_FROM_NUMBER = "+15557654321"
 ```
 
-The application sends only to profiles with notification delivery enabled, an email channel selected, a valid email address, and a document linked to that profile ID. Successful delivery is marked as sent; failures remain visible and retryable. Do not commit API keys or put them in the database.
+Create a Twilio account, obtain an Account SID and Auth Token, and verify or purchase the sending number shown in `PERMITPING_TWILIO_FROM_NUMBER`. The sending number and recipient numbers must be valid for your Twilio account and region. The application sends only to profiles with notification delivery enabled, the selected contact channel configured, and a document linked to that profile ID. Email and SMS delivery attempts are tracked independently, so a failed SMS can retry without resending a successful email. Successful delivery is marked as sent; failures remain visible and retryable. Do not commit API keys or put them in the database. Persist the variables as Windows user environment variables if PermitPing will run through Task Scheduler.
 
 ## Run locally on Windows
 
@@ -47,7 +50,16 @@ From PowerShell:
 .\scripts\setup.ps1
 .\scripts\test.ps1
 .\scripts\run.ps1
+.\scripts\install-startup-task.ps1
 ```
+
+`install-startup-task.ps1` registers a per-user Windows Task Scheduler task that launches PermitPing at logon. It uses the current project directory and the existing `run.ps1` launcher, and does not require administrator elevation. Remove it with:
+
+```powershell
+.\scripts\remove-startup-task.ps1
+```
+
+The startup task runs only when the configured Windows user signs in. Keep the project directory and Java/Maven installation available to that user. If provider variables were set only in a temporary PowerShell session, the scheduled task will not see them; use persistent Windows user environment variables instead.
 
 Equivalent Maven commands:
 
@@ -69,7 +81,7 @@ application/    Services, validation, delivery boundaries, repository contracts
 infrastructure/ SQLite repositories, backups, file storage, SendGrid integration
 ```
 
-`App` is the composition root. `MainView` assembles the workspace, navigation, reminder delivery service, and SendGrid adapter. Application services own validation and business rules; repositories isolate SQLite; UI pages do not issue SQL directly. `ReminderDeliveryService` coordinates profile eligibility, message creation, provider calls, idempotency, and delivery history.
+`App` is the composition root. `MainView` assembles the workspace, navigation, reminder delivery service, SendGrid adapter, and Twilio adapter. Application services own validation and business rules; repositories isolate SQLite; UI pages do not issue SQL directly. `ReminderDeliveryService` coordinates profile eligibility, message creation, independent email/SMS provider calls, channel-specific idempotency, and delivery history.
 
 ## Database migrations
 
@@ -85,7 +97,7 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, reminders and delivery eligibility, authentication and password rules, document versioning, file storage, exports, SendGrid integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 68 passing tests.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, reminders and delivery eligibility, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 70 passing tests.
 
 ## Operational notes
 
@@ -94,7 +106,7 @@ The suite covers document validation and expiry rules, profile validation and li
 - Delivery history records recipient, status, timestamp, provider ID, and failure details.
 - A local in-app alert is only a local alert; it is never treated as contractor delivery.
 - A successful backup restore stops reminder work and returns to sign-in so the restored database and permissions are loaded into a fresh workspace.
-- No SMS provider or Windows startup scheduler is connected yet; background checks run while PermitPing is open.
+- Reminder checks run while PermitPing is open; the optional Windows startup task launches the app at user logon so those checks can begin automatically.
 - Activity History currently records backup-related audit events; reminder delivery has its own detailed history page. Users with audit permission can open Activity history directly from the main navigation.
 - PermitPing now requires a local sign-in before opening the workspace; the first launch creates the initial administrator account. Role permissions control workspace navigation and mutation controls. Built-in roles, custom roles, and permission checks are implemented in the domain/application and SQLite layers, with administrator user-management screens available from System settings. Users can change their own password, and administrators can reset another user's password.
 - The application currently has no hosted API, encrypted cloud storage, templated HTML email, unsubscribe workflow, or provider retry queue.

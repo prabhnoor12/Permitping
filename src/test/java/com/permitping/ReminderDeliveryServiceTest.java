@@ -85,6 +85,33 @@ final class ReminderDeliveryServiceTest {
         assertTrue(reminderStore.sent);
     }
 
+    @Test void sendsEachSelectedChannelAndMarksTheReminderOnlyAfterBothSucceed() {
+        Document document = document(17, 7);
+        FakeReminderRepository reminderStore = new FakeReminderRepository();
+        FakeDeliveryRepository deliveryStore = new FakeDeliveryRepository();
+        List<OutgoingMessage> emails = new ArrayList<>(); List<OutgoingMessage> texts = new ArrayList<>();
+        DocumentService documents = new DocumentService(new DocumentRepository() {
+            public List<Document> findAll() { return List.of(document); }
+            public Document save(Document value) { return value; }
+            public void delete(long id) { }
+        }, CLOCK);
+        Profile profile = new Profile(7, "Northside Electric", ProfileType.COMPANY, "crew@example.com", "+15551234567", "", false, true, NotificationChannel.EMAIL_AND_SMS);
+        ProfileService profiles = new ProfileService(new ProfileRepository() {
+            public List<Profile> findAll() { return List.of(profile); }
+            public void save(Profile value) { }
+        });
+        EmailSender email = message -> { emails.add(message); return DeliveryResult.sent("email-1"); };
+        SmsSender sms = message -> { texts.add(message); return DeliveryResult.sent("sms-1"); };
+        ReminderDeliveryService service = new ReminderDeliveryService(new ReminderService(documents, reminderStore, CLOCK), profiles, deliveryStore, email, sms, CLOCK);
+
+        List<ReminderDelivery> result = service.sendPending();
+
+        assertEquals(2, result.size());
+        assertEquals("EMAIL", result.get(0).channel()); assertEquals("SMS", result.get(1).channel());
+        assertEquals(1, emails.size()); assertEquals(1, texts.size());
+        assertEquals("+15551234567", texts.get(0).recipient()); assertTrue(reminderStore.sent);
+    }
+
     private ReminderDeliveryService service(Document document, Profile profile, FakeReminderRepository reminders,
                                             FakeDeliveryRepository deliveries, List<OutgoingMessage> messages, DeliveryResult response) {
         DocumentService documents = new DocumentService(new DocumentRepository() {

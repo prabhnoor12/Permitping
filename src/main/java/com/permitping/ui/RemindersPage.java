@@ -48,7 +48,7 @@ public final class RemindersPage extends VBox {
             history.setOnAction(event -> { if (openHistory != null) openHistory.run(); else if (notifications != null) notifications.info("Delivery history is not available in this workspace."); });
             card.getChildren().add(history);
         }
-        Label note = new Label("Notifications are reviewed at startup, and configured email deliveries remain available in delivery history.");
+        Label note = new Label("Notifications are reviewed at startup, and configured email and SMS deliveries remain available in delivery history.");
         note.getStyleClass().add("helper-text"); card.getChildren().add(note);
         refreshPending(pending, reminders); getChildren().addAll(card, pending);
     }

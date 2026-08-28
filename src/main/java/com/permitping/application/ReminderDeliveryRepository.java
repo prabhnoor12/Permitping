@@ -11,7 +11,13 @@ public interface ReminderDeliveryRepository {
     default boolean hasSuccessfulDelivery(long documentId, long profileId, int daysBeforeExpiry, java.time.LocalDate expiresOn) {
         return hasSuccessfulDelivery(documentId, profileId, daysBeforeExpiry);
     }
+    default boolean hasSuccessfulDelivery(long documentId, long profileId, int daysBeforeExpiry, java.time.LocalDate expiresOn, String channel) {
+        return hasSuccessfulDelivery(documentId, profileId, daysBeforeExpiry, expiresOn);
+    }
     default boolean hasSkippedDelivery(long documentId, long profileId, int daysBeforeExpiry, java.time.LocalDate expiresOn, String recipient, String reason) {
         return false;
+    }
+    default boolean hasSkippedDelivery(long documentId, long profileId, int daysBeforeExpiry, java.time.LocalDate expiresOn, String channel, String recipient, String reason) {
+        return hasSkippedDelivery(documentId, profileId, daysBeforeExpiry, expiresOn, recipient, reason);
     }
 }
