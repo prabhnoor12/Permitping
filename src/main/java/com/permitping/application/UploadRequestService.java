@@ -22,6 +22,7 @@ public final class UploadRequestService {
     private final Clock clock;
     private final AuditService audit;
     private final UploadVerificationService verification;
+    private final UploadContentAnalysisService analysis;
     private final SecureRandom random = new SecureRandom();
 
     public UploadRequestService(UploadRequestRepository repository, ProfileService profiles, DocumentService documents, FileStorage files) {
@@ -31,7 +32,7 @@ public final class UploadRequestService {
         this(repository, profiles, documents, files, clock, null);
     }
     public UploadRequestService(UploadRequestRepository repository, ProfileService profiles, DocumentService documents, FileStorage files, Clock clock, AuditService audit) {
-        this.repository = repository; this.profiles = profiles; this.documents = documents; this.files = files; this.clock = clock; this.audit = audit; this.verification = new UploadVerificationService(files, clock);
+        this.repository = repository; this.profiles = profiles; this.documents = documents; this.files = files; this.clock = clock; this.audit = audit; this.verification = new UploadVerificationService(files, clock); this.analysis = new UploadContentAnalysisService(files, clock);
     }
 
     public UploadInvite create(long profileId, String project, String documentType, Duration validity) {
@@ -70,6 +71,7 @@ public final class UploadRequestService {
     public List<UploadRequest> recentRequests(int limit) { return repository.recentRequests(Math.max(1, Math.min(limit, 500))); }
     public UploadRequest requestFor(UploadSubmission submission) { return repository.findRequest(submission.requestId()).orElseThrow(() -> new IllegalArgumentException("Upload request not found")); }
     public UploadVerification verify(UploadSubmission submission) { return verification.verify(submission); }
+    public UploadAnalysis analyze(UploadSubmission submission) { return analysis.analyze(submission); }
     public void revoke(long requestId) { if (requestId > 0) { repository.revokeRequest(requestId); if (audit != null) audit.record("UPLOAD_REQUEST_REVOKED", "request=" + requestId); } }
 
     public void reject(long submissionId, String reviewer, String reason) {
