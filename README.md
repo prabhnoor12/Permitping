@@ -14,6 +14,7 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Manage separate email/SMS reminder subscriptions with explicit consent evidence, local suppression controls, unsubscribe history, and provider opt-out enforcement.
 - Create secure, expiring subcontractor upload requests; automatically pre-verify submitted files, suggest expiry dates from readable document text, and accept or reject them from a review inbox before they become compliance evidence.
 - Automatically chase missing documents for approved assignments using the assigned project requirement template, with duplicate suppression and consent-aware email/SMS delivery.
+- Persist encrypted chase notifications and retry temporary provider failures with bounded backoff.
 - Assign and unassign contractors from projects with readiness status and issue details.
 - Project readiness tracking with Ready, At Risk, and Blocked states, plus configurable per-project requirement templates enforced against each assigned subcontractor.
 - Global search across documents, profiles, projects, and assignments, with locally saved search filters.
@@ -44,11 +45,14 @@ $env:PERMITPING_UPLOAD_ENABLED = "true"
 $env:PERMITPING_UPLOAD_BIND_ADDRESS = "127.0.0.1"
 $env:PERMITPING_UPLOAD_PORT = "8765"
 $env:PERMITPING_UPLOAD_BASE_URL = "https://compliance.your-company.example"
+$env:PERMITPING_CHASE_KEY = "use-a-long-random-secret-and-keep-it-stable"
 ```
 
 Create a Twilio account, obtain an Account SID and Auth Token, and verify or purchase the sending number shown in `PERMITPING_TWILIO_FROM_NUMBER`. The sending number and recipient numbers must be valid for your Twilio account and region. The application sends only to profiles with notification delivery enabled, a recorded subscription for the selected channel, the selected contact channel configured, and a document linked to that profile ID. The profile delivery toggle and channel subscription are separate safeguards. New or existing profiles are not automatically subscribed; a manager must record the recipient's express consent and its source in **Manage subscriptions**. Unchecking a channel suppresses it, and all subscribe/unsubscribe changes are retained in the local database and audit history.
 
 SendGrid unsubscribe groups must be configured before email can be sent. PermitPing adds SendGrid's `%asm_group_unsubscribe_url%` tag and the configured `asm.group_id` to each email. Twilio SMS includes `Reply STOP to unsubscribe` and `Reply HELP for help`; a Twilio opt-out response (error 21610) is recorded as a local SMS unsubscribe. Email and SMS delivery attempts are tracked independently, so a failed SMS can retry without resending a successful email. Successful delivery is marked as sent; failures remain visible and retryable. Do not commit API keys or put them in the database. Persist the variables as Windows user environment variables if PermitPing will run through Task Scheduler.
+
+Automatic chase messages use `PERMITPING_CHASE_KEY` to encrypt their pending payloads before they are stored in SQLite. Use a long random secret and keep it stable across restarts; changing or losing it makes existing pending chase messages undecryptable. If the key is missing, automatic chasing is disabled rather than storing messages without encryption. Provider failures retry automatically after 15 minutes, 1 hour, and 6 hours, with a maximum of three attempts; delivery is at-least-once if the application stops immediately after a provider accepts a message but before the local status update.
 
 These controls are product safeguards, not legal advice. The operator remains responsible for obtaining valid consent, preserving evidence, honoring applicable country/state rules, and configuring provider sender registration. PermitPing has no hosted inbound webhook, so an email unsubscribe performed in SendGrid is enforced by SendGrid but is not automatically copied into the local subscription table; use **Manage subscriptions** to keep the local record aligned. Twilio's provider opt-out remains authoritative for SMS.
 
@@ -58,7 +62,7 @@ Before an upload can become compliance evidence, PermitPing verifies that the st
 
 For text-bearing PDFs and DOCX files, the review inbox also extracts unambiguous dates and suggests a date only when nearby text indicates expiry or validity. The reviewer must confirm the source document and can change the date. Images, legacy `.doc` files, scanned PDFs, ambiguous dates, and unreadable content remain manual-review cases; no OCR or automatic legal determination is performed.
 
-Automatic chasing runs at application startup and every 15 minutes when the upload portal is enabled and reachable. It only considers approved, active assignments with missing required document types. A request remains open for 14 days and recent requests suppress duplicates for seven days. Delivery requires profile notifications, a matching contact address, and an explicit channel subscription; provider failures are surfaced in the app and the request remains available for a later retry.
+Automatic chasing runs at application startup and every 15 minutes when the upload portal is enabled and reachable. It only considers approved, active assignments with missing required document types. A request remains open for 14 days and recent requests suppress duplicates for seven days. Delivery requires profile notifications, a matching contact address, and an explicit channel subscription. Messages are persisted in an encrypted outbox, and provider failures are surfaced in the app and retried with bounded backoff.
 
 The upload portal is disabled unless `PERMITPING_UPLOAD_ENABLED` is `true`. In the Assignments page, select an approved subcontractor and choose **Request documents**. PermitPing creates a per-request random token; only its SHA-256 hash is stored in SQLite. Links expire after 1–90 days, can be revoked, accept only PDF/image/Word files up to 10 MB, and never expose the local database path. Uploaded files enter **Review uploads** as pending and do not affect clearance until a reviewer accepts them and supplies the expiration date.
 
@@ -109,7 +113,7 @@ infrastructure/ SQLite repositories, backups, file storage, upload portal, SendG
 
 ## Database migrations
 
-SQLite schema upgrades run automatically through `PRAGMA user_version`. Existing databases receive new columns and tables without being recreated. Current migrations include archived records, profile IDs for document holders, notification preferences, reminder delivery history, authentication users, persisted roles, per-channel notification subscriptions with append-only subscription events, and upload requests/submissions. The initial schema also includes document versions, requirement templates, project-template assignments, reminder settings, and assignment storage.
+SQLite schema upgrades run automatically through `PRAGMA user_version`. Existing databases receive new columns and tables without being recreated. Current migrations include archived records, profile IDs for document holders, notification preferences, reminder delivery history, authentication users, persisted roles, per-channel notification subscriptions with append-only subscription events, upload requests/submissions, and the encrypted chase-delivery outbox. The initial schema also includes document versions, requirement templates, project-template assignments, reminder settings, and assignment storage.
 
 Create a verified backup bundle before manually changing or moving the database or managed files. Restoring a bundle keeps safety copies of the previous database and document directory next to the active data.
 
@@ -121,7 +125,7 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, content analysis, automatic document chasing, and review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 85 passing tests.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, content analysis, automatic document chasing and encrypted outbox retries, review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 86 passing tests.
 
 ## Operational notes
 

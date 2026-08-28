@@ -33,6 +33,10 @@ public final class Database {
                 s.executeUpdate("CREATE TABLE IF NOT EXISTS upload_submissions (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id INTEGER NOT NULL, original_filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, file_path TEXT NOT NULL, submitted_at TEXT NOT NULL, status TEXT NOT NULL, review_notes TEXT NOT NULL, reviewed_at TEXT, reviewed_by TEXT NOT NULL, document_id INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(request_id) REFERENCES upload_requests(id) ON DELETE CASCADE)");
                 s.execute("PRAGMA user_version=9");
             }
+            if (version < 10) {
+                s.executeUpdate("CREATE TABLE IF NOT EXISTS document_chase_deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id INTEGER NOT NULL, profile_id INTEGER NOT NULL, project TEXT NOT NULL, document_type TEXT NOT NULL, channel TEXT NOT NULL, recipient TEXT NOT NULL, encrypted_message TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, attempted_at TEXT, provider_message_id TEXT NOT NULL, error_message TEXT NOT NULL, UNIQUE(request_id, channel), FOREIGN KEY(request_id) REFERENCES upload_requests(id) ON DELETE CASCADE, FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE)");
+                s.execute("PRAGMA user_version=10");
+            }
         }
     }
     private void addColumnIfMissing(Statement s,String table,String definition)throws SQLException{try{s.executeUpdate("ALTER TABLE "+table+" ADD COLUMN "+definition);}catch(SQLException e){if(!e.getMessage().toLowerCase().contains("duplicate column name"))throw e;}}

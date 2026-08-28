@@ -10,9 +10,11 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -34,6 +36,7 @@ final class DocumentChaseServiceTest {
         List<OutgoingMessage> sent = new ArrayList<>();
         UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), new FileStorage(temp.resolve("files")), CLOCK);
         DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), templates, uploads,
+            new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
             message -> { sent.add(message); return DeliveryResult.sent("email-1"); }, message -> DeliveryResult.failed("unexpected SMS"), subscriptions, null, CLOCK, true);
 
         List<DocumentChaseResult> first = chasing.chaseMissing();
@@ -59,6 +62,7 @@ final class DocumentChaseServiceTest {
         NotificationSubscriptionService subscriptions = new NotificationSubscriptionService(new SqliteNotificationSubscriptionRepository(database), null, CLOCK);
         UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), new FileStorage(temp.resolve("files")), CLOCK);
         DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), templates, uploads,
+            new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
             message -> DeliveryResult.sent("email-1"), message -> DeliveryResult.failed("unexpected SMS"), subscriptions, null, CLOCK, true);
 
         List<DocumentChaseResult> results = chasing.chaseMissing();
@@ -66,5 +70,67 @@ final class DocumentChaseServiceTest {
         assertEquals(3, results.size());
         assertTrue(results.stream().allMatch(value -> value.status() == ChaseStatus.SKIPPED));
         assertTrue(uploads.recentRequests(20).isEmpty());
+    }
+
+    @Test void retriesTransientProviderFailuresFromThePersistentOutbox() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-26T00:00:00Z"));
+        Database database = new Database(temp.resolve("retry.db"));
+        ProfileService profiles = new ProfileService(new SqliteProfileRepository(database));
+        profiles.save(new Profile(0, "Northside Electric", ProfileType.COMPANY, "office@example.com", "", "", false, true, NotificationChannel.EMAIL));
+        long profileId = profiles.list().get(0).id();
+        AssignmentService assignments = new AssignmentService(new SqliteAssignmentRepository(database));
+        assignments.save(new ProjectAssignment(0, "Oak Street", profileId, AssignmentStatus.APPROVED, ""));
+        RequirementTemplateService templates = new RequirementTemplateService(new SqliteRequirementTemplateRepository(database));
+        templates.assign("Oak Street", templates.list().stream().filter(value -> value.name().equals("Electrical subcontractor")).findFirst().orElseThrow().id());
+        NotificationSubscriptionService subscriptions = new NotificationSubscriptionService(new SqliteNotificationSubscriptionRepository(database), null, clock);
+        subscriptions.subscribe(profileId, NotificationChannel.EMAIL, "signed-form");
+        DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), clock);
+        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, new FileStorage(temp.resolve("retry-files")), clock);
+        AtomicInteger providerCalls = new AtomicInteger();
+        DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, documents, templates, uploads,
+            new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
+            message -> providerCalls.getAndIncrement() == 0
+                ? DeliveryResult.failed("temporary provider outage")
+                : DeliveryResult.sent("email-" + providerCalls.get()),
+            message -> DeliveryResult.failed("unexpected SMS"), subscriptions, null, clock, true);
+
+        List<DocumentChaseResult> first = chasing.chaseMissing();
+
+        assertEquals(3, first.size());
+        assertEquals(1, first.stream().filter(value -> value.status() == ChaseStatus.FAILED).count());
+        assertEquals(2, first.stream().filter(value -> value.status() == ChaseStatus.REQUESTED).count());
+        assertEquals(3, providerCalls.get());
+
+        clock.advance(Duration.ofMinutes(16));
+        List<DocumentChaseResult> retry = chasing.chaseMissing();
+
+        assertEquals(1, retry.size());
+        assertEquals(ChaseStatus.REQUESTED, retry.get(0).status());
+        assertEquals(4, providerCalls.get());
+        assertTrue(new SqliteDocumentChaseDeliveryRepository(database).pending(clock.instant().atZone(ZoneOffset.UTC).toLocalDateTime().plusDays(1), 20).isEmpty());
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant current;
+
+        private MutableClock(Instant current) {
+            this.current = current;
+        }
+
+        @Override public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override public Instant instant() {
+            return current;
+        }
+
+        private void advance(Duration duration) {
+            current = current.plus(duration);
+        }
     }
 }
