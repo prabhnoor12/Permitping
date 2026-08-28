@@ -30,6 +30,13 @@ public final class SqliteUploadRequestRepository implements UploadRequestReposit
         catch (SQLException e) { throw failure("find upload request", e); }
     }
 
+    @Override public Optional<UploadRequest> findLatest(long profileId, String project, String documentType) {
+        try (Connection c = database.connect(); PreparedStatement p = c.prepareStatement("SELECT * FROM upload_requests WHERE profile_id=? AND project COLLATE NOCASE=? AND document_type COLLATE NOCASE=? ORDER BY created_at DESC LIMIT 1")) {
+            p.setLong(1, profileId); p.setString(2, project == null ? "" : project.trim()); p.setString(3, documentType == null ? "" : documentType.trim());
+            try (ResultSet r = p.executeQuery()) { return r.next() ? Optional.of(readRequest(r)) : Optional.empty(); }
+        } catch (SQLException e) { throw failure("find latest upload request", e); }
+    }
+
     @Override public List<UploadRequest> recentRequests(int limit) {
         List<UploadRequest> result = new ArrayList<>();
         try (Connection c = database.connect(); PreparedStatement p = c.prepareStatement("SELECT * FROM upload_requests ORDER BY created_at DESC LIMIT ?")) { p.setInt(1, limit); try (ResultSet r = p.executeQuery()) { while (r.next()) result.add(readRequest(r)); } }

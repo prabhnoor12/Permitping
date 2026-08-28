@@ -13,6 +13,7 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Manage profiles with edit, archive, restore, delete, contact validation, detail summaries, and notification preferences.
 - Manage separate email/SMS reminder subscriptions with explicit consent evidence, local suppression controls, unsubscribe history, and provider opt-out enforcement.
 - Create secure, expiring subcontractor upload requests; automatically pre-verify submitted files, suggest expiry dates from readable document text, and accept or reject them from a review inbox before they become compliance evidence.
+- Automatically chase missing documents for approved assignments using the assigned project requirement template, with duplicate suppression and consent-aware email/SMS delivery.
 - Assign and unassign contractors from projects with readiness status and issue details.
 - Project readiness tracking with Ready, At Risk, and Blocked states, plus configurable per-project requirement templates enforced against each assigned subcontractor.
 - Global search across documents, profiles, projects, and assignments, with locally saved search filters.
@@ -56,6 +57,8 @@ These controls are product safeguards, not legal advice. The operator remains re
 Before an upload can become compliance evidence, PermitPing verifies that the stored file remains inside managed storage, its recorded size has not changed, its SHA-256 can be calculated, and its bytes match the claimed PDF/image/Word extension. A signature or content-type mismatch is held for manual review; these checks do not establish that the document is genuine, current, or legally sufficient.
 
 For text-bearing PDFs and DOCX files, the review inbox also extracts unambiguous dates and suggests a date only when nearby text indicates expiry or validity. The reviewer must confirm the source document and can change the date. Images, legacy `.doc` files, scanned PDFs, ambiguous dates, and unreadable content remain manual-review cases; no OCR or automatic legal determination is performed.
+
+Automatic chasing runs at application startup and every 15 minutes when the upload portal is enabled and reachable. It only considers approved, active assignments with missing required document types. A request remains open for 14 days and recent requests suppress duplicates for seven days. Delivery requires profile notifications, a matching contact address, and an explicit channel subscription; provider failures are surfaced in the app and the request remains available for a later retry.
 
 The upload portal is disabled unless `PERMITPING_UPLOAD_ENABLED` is `true`. In the Assignments page, select an approved subcontractor and choose **Request documents**. PermitPing creates a per-request random token; only its SHA-256 hash is stored in SQLite. Links expire after 1–90 days, can be revoked, accept only PDF/image/Word files up to 10 MB, and never expose the local database path. Uploaded files enter **Review uploads** as pending and do not affect clearance until a reviewer accepts them and supplies the expiration date.
 
@@ -118,7 +121,7 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, content analysis, and review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 83 passing tests.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, content analysis, automatic document chasing, and review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 85 passing tests.
 
 ## Operational notes
 

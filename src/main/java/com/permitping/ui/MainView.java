@@ -17,7 +17,7 @@ import javafx.stage.WindowEvent;
 
 public final class MainView extends BorderPane {
     private final DocumentService documents; private final FileStorage files; private final DashboardView dashboard; private final ProjectReadinessView readiness; private final DocumentTableView table; private final DocumentForm form; private final DocumentDetailView details; private final ProfileService profiles; private final AssignmentService assignments; private final ReminderService reminders; private final DocumentVersionService versions; private final RequirementTemplateService templates; private final NotificationService notifications = new NotificationService();
-    private final StackPane workspace = new StackPane(); private final StackPane tableHost = new StackPane(); private final VBox emptyState = new VBox(10); private final Label filterLabel = new Label(); private Button activeNav; private final AuditService audit = new AuditService(new com.permitping.infrastructure.SqliteAuditRepository(java.nio.file.Path.of(System.getProperty("user.dir"),"data","permitping.db"))); private final NotificationSubscriptionService subscriptions; private final ReminderDeliveryService delivery; private final ClearanceService clearance; private final UploadRequestService uploads; private final com.permitping.infrastructure.UploadPortalServer uploadPortal; private ComboBox<String> projects; private ScheduledExecutorService reminderScheduler; private final AtomicBoolean reminderDeliveryRunning = new AtomicBoolean(); private final java.util.Set<Permission> permissions; private final AuthService auth; private final AuthUser authenticatedUser; private final Runnable onLogout;
+    private final StackPane workspace = new StackPane(); private final StackPane tableHost = new StackPane(); private final VBox emptyState = new VBox(10); private final Label filterLabel = new Label(); private Button activeNav; private final AuditService audit = new AuditService(new com.permitping.infrastructure.SqliteAuditRepository(java.nio.file.Path.of(System.getProperty("user.dir"),"data","permitping.db"))); private final NotificationSubscriptionService subscriptions; private final ReminderDeliveryService delivery; private final DocumentChaseService chasing; private final ClearanceService clearance; private final UploadRequestService uploads; private final com.permitping.infrastructure.UploadPortalServer uploadPortal; private ComboBox<String> projects; private ScheduledExecutorService reminderScheduler; private final AtomicBoolean reminderDeliveryRunning = new AtomicBoolean(); private final AtomicBoolean chaseRunning = new AtomicBoolean(); private final java.util.Set<Permission> permissions; private final AuthService auth; private final AuthUser authenticatedUser; private final Runnable onLogout;
     public MainView(DocumentService documents) { this(documents, null, null); }
     public MainView(DocumentService documents, RequirementTemplateService templates) { this(documents, templates, null, null); }
     public MainView(DocumentService documents, RequirementTemplateService templates, ProfileService profiles) { this(documents, templates, profiles, null, null); }
@@ -32,8 +32,10 @@ public final class MainView extends BorderPane {
         clearance = assignments != null && profiles != null ? new ClearanceService(assignments, profiles, documents, files, java.time.Clock.systemDefaultZone(), templates) : null;
         uploads = profiles == null ? null : new UploadRequestService(new com.permitping.infrastructure.SqliteUploadRequestRepository(new com.permitping.infrastructure.Database(java.nio.file.Path.of(System.getProperty("user.dir"),"data","permitping.db"))), profiles, documents, files, java.time.Clock.systemDefaultZone(), audit);
         uploadPortal = startUploadPortal();
-        delivery = reminders != null && profiles != null && can(Permission.MANAGE_REMINDERS) ? new ReminderDeliveryService(reminders, profiles, new com.permitping.infrastructure.SqliteReminderDeliveryRepository(new com.permitping.infrastructure.Database(java.nio.file.Path.of(System.getProperty("user.dir"),"data","permitping.db"))), new com.permitping.infrastructure.SendGridEmailSender(), new com.permitping.infrastructure.TwilioSmsSender(), subscriptions) : null; form=new DocumentForm(documents,profiles,files,versions,notifications); dashboard=new DashboardView(documents); readiness=new ProjectReadinessView(new ProjectReadinessService(documents,files,java.time.Clock.systemDefaultZone(),templates,assignments,clearance),templates,this::showProjectDocuments); details=new DocumentDetailView(files,versions,notifications,profiles,this::edit,this::renew,this::archive,can(Permission.MANAGE_DOCUMENTS)); table=new DocumentTableView(documents,files,profiles,details::show);
-        setLeft(sidebar()); ScrollPane scroll = new ScrollPane(workspace); scroll.setFitToWidth(true); scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER); scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED); scroll.setPannable(true); scroll.getStyleClass().add("workspace-scroll"); setCenter(scroll); showDashboard(); refresh(); if(reminders!=null) { javafx.application.Platform.runLater(this::showPendingReminders); if (delivery != null) startReminderScheduler(); }
+        delivery = reminders != null && profiles != null && can(Permission.MANAGE_REMINDERS) ? new ReminderDeliveryService(reminders, profiles, new com.permitping.infrastructure.SqliteReminderDeliveryRepository(new com.permitping.infrastructure.Database(java.nio.file.Path.of(System.getProperty("user.dir"),"data","permitping.db"))), new com.permitping.infrastructure.SendGridEmailSender(), new com.permitping.infrastructure.TwilioSmsSender(), subscriptions) : null;
+        chasing = assignments != null && profiles != null && templates != null && uploads != null && can(Permission.MANAGE_ASSIGNMENTS) && uploadPortal != null ? new DocumentChaseService(assignments, profiles, documents, templates, uploads, new com.permitping.infrastructure.SendGridEmailSender(), new com.permitping.infrastructure.TwilioSmsSender(), subscriptions, audit, java.time.Clock.systemDefaultZone(), true) : null;
+        form=new DocumentForm(documents,profiles,files,versions,notifications); dashboard=new DashboardView(documents); readiness=new ProjectReadinessView(new ProjectReadinessService(documents,files,java.time.Clock.systemDefaultZone(),templates,assignments,clearance),templates,this::showProjectDocuments); details=new DocumentDetailView(files,versions,notifications,profiles,this::edit,this::renew,this::archive,can(Permission.MANAGE_DOCUMENTS)); table=new DocumentTableView(documents,files,profiles,details::show);
+        setLeft(sidebar()); ScrollPane scroll = new ScrollPane(workspace); scroll.setFitToWidth(true); scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER); scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED); scroll.setPannable(true); scroll.getStyleClass().add("workspace-scroll"); setCenter(scroll); showDashboard(); refresh(); if(reminders!=null) javafx.application.Platform.runLater(this::showPendingReminders); if (delivery != null || chasing != null) startReminderScheduler();
     }
     private void showDashboard() { workspace.getChildren().setAll(can(Permission.VIEW_DOCUMENTS)?buildDashboard():accessDenied("the document overview")); }
     private Node buildDashboard() {
@@ -66,21 +68,19 @@ public final class MainView extends BorderPane {
     public static boolean permissionsChanged(AuthUser current, AuthUser authenticated){return !current.role().equals(authenticated.role())||!current.role().permissions().equals(authenticated.role().permissions());}
     private void signOut(){stopReminderScheduler();stopUploadPortal();if(onLogout!=null)onLogout.run();}
     private void restoreCompleted(){stopReminderScheduler();stopUploadPortal();if(onLogout!=null)onLogout.run();else notifications.info("Backup restored. Restart PermitPing to reload the workspace.");}
-    private void prepareForRestore(){stopReminderScheduler();if(reminderDeliveryRunning.get())throw new IllegalStateException("A reminder delivery is still running. Wait for it to finish, then try restoring again.");}
-    private void restoreFailed(){if(delivery!=null&&reminderScheduler==null)startReminderScheduler();}
+    private void prepareForRestore(){stopReminderScheduler();if(reminderDeliveryRunning.get()||chaseRunning.get())throw new IllegalStateException("Automatic compliance work is still running. Wait for it to finish, then try restoring again.");}
+    private void restoreFailed(){if((delivery!=null||chasing!=null)&&reminderScheduler==null)startReminderScheduler();}
     private void showDenied(String area){workspace.getChildren().setAll(accessDenied(area));}
     private VBox accessDenied(String area){Label title=new Label("Access restricted");title.getStyleClass().add("title");Label copy=new Label("Your role does not have permission to view "+area+".");copy.getStyleClass().add("muted");VBox box=new VBox(8,title,copy);box.getStyleClass().addAll("content-shell","empty-state");box.setPadding(new Insets(34));return box;}
     private void showProjectDocuments(String project){showDashboard();table.setQuickFilter("By project");if(projects!=null){projects.setValue(project);projects.setVisible(true);}filterLabel.setText("Showing project: "+project);}
     private void showPendingReminders(){
-        if (delivery != null) {
-            runReminderDelivery("permitping-startup-reminder-delivery");
-            return;
-        }
+        runAutomaticChase("permitping-startup-document-chase");
+        if (delivery != null) { runReminderDelivery("permitping-startup-reminder-delivery"); return; }
         notifications.reminders(reminders.pending());
     }
     private void startReminderScheduler(){
         reminderScheduler = Executors.newSingleThreadScheduledExecutor(task -> { Thread worker = new Thread(task, "permitping-reminder-scheduler"); worker.setDaemon(true); return worker; });
-        reminderScheduler.scheduleWithFixedDelay(() -> runReminderDelivery("permitping-scheduled-reminder-delivery"), 15, 15, TimeUnit.MINUTES);
+        reminderScheduler.scheduleWithFixedDelay(() -> { runAutomaticChase("permitping-scheduled-document-chase"); runReminderDelivery("permitping-scheduled-reminder-delivery"); }, 15, 15, TimeUnit.MINUTES);
         sceneProperty().addListener((observable, oldScene, newScene) -> watchReminderSchedulerWindow(newScene));
         watchReminderSchedulerWindow(getScene());
     }
@@ -104,6 +104,20 @@ public final class MainView extends BorderPane {
         }, threadName);
         worker.setDaemon(true);
         worker.start();
+    }
+    private void runAutomaticChase(String threadName){
+        if (chasing == null || !chaseRunning.compareAndSet(false, true)) return;
+        Thread worker = new Thread(() -> {
+            try { java.util.List<com.permitping.domain.DocumentChaseResult> results = chasing.chaseMissing(); javafx.application.Platform.runLater(() -> notifyChaseResults(results)); }
+            catch (RuntimeException ex) { javafx.application.Platform.runLater(() -> notifications.error("Automatic document chasing failed: " + (ex.getMessage() == null ? "Unknown error" : ex.getMessage()))); }
+            finally { chaseRunning.set(false); }
+        }, threadName); worker.setDaemon(true); worker.start();
+    }
+    private void notifyChaseResults(java.util.List<com.permitping.domain.DocumentChaseResult> results){
+        long sent = results.stream().filter(result -> result.status() == com.permitping.domain.ChaseStatus.REQUESTED).count();
+        long failed = results.stream().filter(result -> result.status() == com.permitping.domain.ChaseStatus.FAILED).count();
+        if (sent > 0) notifications.info(sent + " missing-document chase message(s) sent.");
+        if (failed > 0) notifications.error(failed + " missing-document chase message(s) failed.");
     }
     private void notifyDeliveryResults(java.util.List<com.permitping.domain.ReminderDelivery> results) {
         long sent = results.stream().filter(d -> d.status() == com.permitping.domain.DeliveryStatus.SENT).count();

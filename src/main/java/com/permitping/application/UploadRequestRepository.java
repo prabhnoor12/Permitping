@@ -9,6 +9,7 @@ public interface UploadRequestRepository {
     UploadRequest saveRequest(UploadRequest request);
     Optional<UploadRequest> findRequest(long id);
     Optional<UploadRequest> findOpenByTokenHash(String tokenHash);
+    Optional<UploadRequest> findLatest(long profileId, String project, String documentType);
     List<UploadRequest> recentRequests(int limit);
     void revokeRequest(long id);
     void completeRequest(long id);

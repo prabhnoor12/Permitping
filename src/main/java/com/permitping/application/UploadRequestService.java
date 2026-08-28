@@ -72,6 +72,7 @@ public final class UploadRequestService {
     public UploadRequest requestFor(UploadSubmission submission) { return repository.findRequest(submission.requestId()).orElseThrow(() -> new IllegalArgumentException("Upload request not found")); }
     public UploadVerification verify(UploadSubmission submission) { return verification.verify(submission); }
     public UploadAnalysis analyze(UploadSubmission submission) { return analysis.analyze(submission); }
+    public Optional<UploadRequest> latestRequest(long profileId, String project, String documentType) { return repository.findLatest(profileId, project, documentType); }
     public void revoke(long requestId) { if (requestId > 0) { repository.revokeRequest(requestId); if (audit != null) audit.record("UPLOAD_REQUEST_REVOKED", "request=" + requestId); } }
 
     public void reject(long submissionId, String reviewer, String reason) {
