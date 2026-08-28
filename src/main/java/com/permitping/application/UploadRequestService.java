@@ -84,9 +84,10 @@ public final class UploadRequestService {
 
     public Document accept(long submissionId, String reviewer, String documentName, LocalDate expiresOn, String notes) {
         UploadSubmission submission = pending(submissionId);
+        UploadRequest request = repository.findRequest(submission.requestId()).orElseThrow(() -> new IllegalArgumentException("Upload request not found"));
+        if (request.status() != UploadRequestStatus.OPEN) throw new IllegalArgumentException("This upload request has been revoked or closed");
         UploadVerification result = verify(submission);
         if (result.status() != UploadVerificationStatus.VERIFIED) throw new IllegalArgumentException("Upload cannot be accepted until automatic verification passes: " + String.join(" ", result.checks()));
-        UploadRequest request = repository.findRequest(submission.requestId()).orElseThrow(() -> new IllegalArgumentException("Upload request not found"));
         Profile profile = profiles.list().stream().filter(value -> value.id() == request.profileId()).findFirst().orElseThrow(() -> new IllegalArgumentException("Subcontractor profile no longer exists"));
         if (expiresOn == null) throw new IllegalArgumentException("Expiration date is required before accepting an upload");
         Document saved = null;

@@ -74,6 +74,27 @@ final class UploadRequestServiceTest {
         assertEquals(UploadSubmissionStatus.PENDING, new SqliteUploadRequestRepository(database).findSubmission(submission.id()).orElseThrow().status());
     }
 
+    @Test void revokedRequestCannotAcceptPreviouslySubmittedUpload() throws Exception {
+        Path db = temp.resolve("revoked-review.db"); Database database = new Database(db);
+        ProfileService profiles = new ProfileService(new SqliteProfileRepository(database));
+        profiles.save(new Profile(0, "Northside Electric", ProfileType.COMPANY, "", "", ""));
+        long profileId = profiles.list().get(0).id();
+        DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), CLOCK);
+        FileStorage files = new FileStorage(temp.resolve("revoked-files"));
+        UploadRequestService service = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, files, CLOCK);
+        UploadInvite invite = service.create(profileId, "Oak Street", "License", Duration.ofDays(30));
+        Path source = temp.resolve("revoked-license.pdf"); Files.writeString(source, "%PDF-1.7\nPermitPing test document\n");
+
+        UploadSubmission submission = service.submit(invite.token(), "license.pdf", "application/pdf", source);
+        service.revoke(invite.request().id());
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+            () -> service.accept(submission.id(), "reviewer", "Northside license", LocalDate.of(2027, 1, 1), ""));
+        assertTrue(error.getMessage().contains("revoked or closed"));
+        assertTrue(documents.list().isEmpty());
+        assertEquals(UploadSubmissionStatus.PENDING, new SqliteUploadRequestRepository(database).findSubmission(submission.id()).orElseThrow().status());
+    }
+
     @Test void suggestsExpiryDateFromPdfTextButLeavesAcceptanceToReviewer() throws Exception {
         Path db = temp.resolve("permitping.db"); Database database = new Database(db);
         ProfileService profiles = new ProfileService(new SqliteProfileRepository(database));
