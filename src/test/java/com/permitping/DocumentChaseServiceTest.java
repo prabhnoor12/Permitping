@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -22,7 +23,7 @@ final class DocumentChaseServiceTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-08-26T00:00:00Z"), ZoneOffset.UTC);
     @TempDir Path temp;
 
-    @Test void createsRequestsAndSendsOnlyOnceForMissingTemplateRequirements() {
+    @Test void chasesWhenRequiredEvidenceIsExpiredOrItsFileIsMissing() {
         Database database = new Database(temp.resolve("permitping.db"));
         ProfileService profiles = new ProfileService(new SqliteProfileRepository(database));
         profiles.save(new Profile(0, "Northside Electric", ProfileType.COMPANY, "office@example.com", "", "", false, true, NotificationChannel.EMAIL));
@@ -34,9 +35,13 @@ final class DocumentChaseServiceTest {
         NotificationSubscriptionService subscriptions = new NotificationSubscriptionService(new SqliteNotificationSubscriptionRepository(database), null, CLOCK);
         subscriptions.subscribe(profileId, NotificationChannel.EMAIL, "signed-form");
         List<OutgoingMessage> sent = new ArrayList<>();
-        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), new FileStorage(temp.resolve("files")), CLOCK);
-        DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), templates, uploads,
-            new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
+        FileStorage files = new FileStorage(temp.resolve("files"));
+        DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), CLOCK);
+        documents.save(new Document(0, "Expired OSHA card", "OSHA card", "Northside Electric", "Oak Street", LocalDate.of(2026, 8, 25), "", "", profileId));
+        documents.save(new Document(0, "Unusable license", "License", "Northside Electric", "Oak Street", LocalDate.of(2027, 8, 26), temp.resolve("missing-license.pdf").toString(), "", profileId));
+        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, files, CLOCK);
+        DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, documents, templates, uploads,
+            files, new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
             message -> { sent.add(message); return DeliveryResult.sent("email-1"); }, message -> DeliveryResult.failed("unexpected SMS"), subscriptions, null, CLOCK, true);
 
         List<DocumentChaseResult> first = chasing.chaseMissing();
@@ -44,6 +49,9 @@ final class DocumentChaseServiceTest {
 
         assertEquals(3, first.size());
         assertTrue(first.stream().allMatch(value -> value.status() == ChaseStatus.REQUESTED));
+        assertTrue(first.stream().anyMatch(value -> value.documentType().equals("OSHA card")));
+        assertTrue(first.stream().anyMatch(value -> value.documentType().equals("License")));
+        assertTrue(first.stream().anyMatch(value -> value.documentType().equals("Insurance certificate")));
         assertEquals(3, sent.size());
         assertTrue(sent.get(0).body().contains("/upload/"));
         assertTrue(second.isEmpty());
@@ -60,9 +68,10 @@ final class DocumentChaseServiceTest {
         RequirementTemplateService templates = new RequirementTemplateService(new SqliteRequirementTemplateRepository(database));
         templates.assign("Oak Street", templates.list().stream().filter(value -> value.name().equals("Electrical subcontractor")).findFirst().orElseThrow().id());
         NotificationSubscriptionService subscriptions = new NotificationSubscriptionService(new SqliteNotificationSubscriptionRepository(database), null, CLOCK);
-        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), new FileStorage(temp.resolve("files")), CLOCK);
+        FileStorage files = new FileStorage(temp.resolve("files"));
+        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), files, CLOCK);
         DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, new DocumentService(new SqliteDocumentRepository(database), CLOCK), templates, uploads,
-            new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
+            files, new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
             message -> DeliveryResult.sent("email-1"), message -> DeliveryResult.failed("unexpected SMS"), subscriptions, null, CLOCK, true);
 
         List<DocumentChaseResult> results = chasing.chaseMissing();
@@ -85,10 +94,11 @@ final class DocumentChaseServiceTest {
         NotificationSubscriptionService subscriptions = new NotificationSubscriptionService(new SqliteNotificationSubscriptionRepository(database), null, clock);
         subscriptions.subscribe(profileId, NotificationChannel.EMAIL, "signed-form");
         DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), clock);
-        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, new FileStorage(temp.resolve("retry-files")), clock);
+        FileStorage files = new FileStorage(temp.resolve("retry-files"));
+        UploadRequestService uploads = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, files, clock);
         AtomicInteger providerCalls = new AtomicInteger();
         DocumentChaseService chasing = new DocumentChaseService(assignments, profiles, documents, templates, uploads,
-            new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
+            files, new SqliteDocumentChaseDeliveryRepository(database), new ChaseMessageProtector("test-key"),
             message -> providerCalls.getAndIncrement() == 0
                 ? DeliveryResult.failed("temporary provider outage")
                 : DeliveryResult.sent("email-" + providerCalls.get()),

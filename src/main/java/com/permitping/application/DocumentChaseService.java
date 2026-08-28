@@ -1,6 +1,7 @@
 package com.permitping.application;
 
 import com.permitping.domain.*;
+import com.permitping.infrastructure.FileStorage;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -18,6 +19,7 @@ public final class DocumentChaseService {
     private final DocumentService documents;
     private final RequirementTemplateService templates;
     private final UploadRequestService uploads;
+    private final FileStorage files;
     private final DocumentChaseDeliveryRepository deliveries;
     private final ChaseMessageProtector protector;
     private final EmailSender email;
@@ -29,11 +31,11 @@ public final class DocumentChaseService {
 
     public DocumentChaseService(AssignmentService assignments, ProfileService profiles, DocumentService documents,
                                 RequirementTemplateService templates, UploadRequestService uploads,
-                                DocumentChaseDeliveryRepository deliveries, ChaseMessageProtector protector,
+                                FileStorage files, DocumentChaseDeliveryRepository deliveries, ChaseMessageProtector protector,
                                 EmailSender email, SmsSender sms, NotificationSubscriptionService subscriptions,
                                 AuditService audit, Clock clock, boolean portalEnabled) {
         this.assignments = assignments; this.profiles = profiles; this.documents = documents; this.templates = templates;
-        this.uploads = uploads; this.deliveries = deliveries; this.protector = protector; this.email = email; this.sms = sms;
+        this.uploads = uploads; this.files = files; this.deliveries = deliveries; this.protector = protector; this.email = email; this.sms = sms;
         this.subscriptions = subscriptions; this.audit = audit; this.clock = clock; this.portalEnabled = portalEnabled;
     }
 
@@ -129,7 +131,12 @@ public final class DocumentChaseService {
     }
     private boolean subscribed(long profileId, NotificationChannel channel) { return subscriptions != null && subscriptions.isSubscribed(profileId, channel); }
     private boolean usable(String value) { return value != null && !value.isBlank(); }
-    private boolean hasEvidence(Profile profile, String project, String type) { return documents.list().stream().anyMatch(document -> document.holderProfileId() == profile.id() && same(document.project(), project) && same(document.type(), type)); }
+    private boolean hasEvidence(Profile profile, String project, String type) {
+        return documents.list().stream().anyMatch(document -> document.holderProfileId() == profile.id()
+            && same(document.project(), project) && same(document.type(), type)
+            && document.status(clock) != ComplianceStatus.EXPIRED
+            && (document.filePath() == null || document.filePath().isBlank() || files.exists(document.filePath())));
+    }
     private RequirementTemplate templateFor(String project) { Long id = templates.templateIdFor(project); return id == null ? null : templates.list().stream().filter(template -> template.id() == id).findFirst().orElse(null); }
     private boolean recentlyRequested(UploadRequest request) { LocalDateTime now = LocalDateTime.now(clock); return (request.status() == UploadRequestStatus.OPEN && request.expiresAt().isAfter(now)) || request.createdAt().plus(RETRY_COOLDOWN).isAfter(now); }
     private DocumentChaseResult result(DocumentChaseDelivery delivery, ChaseStatus status, String detail) { return new DocumentChaseResult(delivery.profileId(), "", delivery.project(), delivery.documentType(), delivery.requestId(), delivery.channel(), status, detail); }

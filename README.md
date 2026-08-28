@@ -13,7 +13,7 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Manage profiles with edit, archive, restore, delete, contact validation, detail summaries, and notification preferences.
 - Manage separate email/SMS reminder subscriptions with explicit consent evidence, local suppression controls, unsubscribe history, and provider opt-out enforcement.
 - Create secure, expiring subcontractor upload requests; automatically pre-verify submitted files, suggest expiry dates from readable document text, and accept or reject them from a review inbox before they become compliance evidence.
-- Automatically chase missing documents for approved assignments using the assigned project requirement template, with duplicate suppression and consent-aware email/SMS delivery.
+- Automatically chase missing or unusable documents for approved assignments using the assigned project requirement template, with duplicate suppression and consent-aware email/SMS delivery.
 - Persist encrypted chase notifications and retry temporary provider failures with bounded backoff.
 - Assign and unassign contractors from projects with readiness status and issue details.
 - Project readiness tracking with Ready, At Risk, and Blocked states, plus configurable per-project requirement templates enforced against each assigned subcontractor.
@@ -62,7 +62,7 @@ Before an upload can become compliance evidence, PermitPing verifies that the st
 
 For text-bearing PDFs and DOCX files, the review inbox also extracts unambiguous dates and suggests a date only when nearby text indicates expiry or validity. The reviewer must confirm the source document and can change the date. Images, legacy `.doc` files, scanned PDFs, ambiguous dates, and unreadable content remain manual-review cases; no OCR or automatic legal determination is performed.
 
-Automatic chasing runs at application startup and every 15 minutes when the upload portal is enabled and reachable. It only considers approved, active assignments with missing required document types. A request remains open for 14 days and recent requests suppress duplicates for seven days. Delivery requires profile notifications, a matching contact address, and an explicit channel subscription. Messages are persisted in an encrypted outbox, and provider failures are surfaced in the app and retried with bounded backoff.
+Automatic chasing runs at application startup and every 15 minutes when the upload portal is enabled and reachable. It only considers approved, active assignments with missing required document types, expired required documents, or required documents whose recorded file is no longer available. A request remains open for 14 days and recent requests suppress duplicates for seven days. Delivery requires profile notifications, a matching contact address, and an explicit channel subscription. Messages are persisted in an encrypted outbox, and provider failures are surfaced in the app and retried with bounded backoff.
 
 The upload portal is disabled unless `PERMITPING_UPLOAD_ENABLED` is `true`. In the Assignments page, select an approved subcontractor and choose **Request documents**. PermitPing creates a per-request random token; only its SHA-256 hash is stored in SQLite. Links expire after 1–90 days, can be revoked, accept only PDF/image/Word files up to 10 MB, and never expose the local database path. Uploaded files enter **Review uploads** as pending and do not affect clearance until a reviewer accepts them and supplies the expiration date.
 
