@@ -21,6 +21,7 @@ public final class UploadRequestService {
     private final FileStorage files;
     private final Clock clock;
     private final AuditService audit;
+    private final UploadVerificationService verification;
     private final SecureRandom random = new SecureRandom();
 
     public UploadRequestService(UploadRequestRepository repository, ProfileService profiles, DocumentService documents, FileStorage files) {
@@ -30,7 +31,7 @@ public final class UploadRequestService {
         this(repository, profiles, documents, files, clock, null);
     }
     public UploadRequestService(UploadRequestRepository repository, ProfileService profiles, DocumentService documents, FileStorage files, Clock clock, AuditService audit) {
-        this.repository = repository; this.profiles = profiles; this.documents = documents; this.files = files; this.clock = clock; this.audit = audit;
+        this.repository = repository; this.profiles = profiles; this.documents = documents; this.files = files; this.clock = clock; this.audit = audit; this.verification = new UploadVerificationService(files, clock);
     }
 
     public UploadInvite create(long profileId, String project, String documentType, Duration validity) {
@@ -68,6 +69,7 @@ public final class UploadRequestService {
     public List<UploadSubmission> pendingSubmissions(int limit) { return repository.pendingSubmissions(Math.max(1, Math.min(limit, 500))); }
     public List<UploadRequest> recentRequests(int limit) { return repository.recentRequests(Math.max(1, Math.min(limit, 500))); }
     public UploadRequest requestFor(UploadSubmission submission) { return repository.findRequest(submission.requestId()).orElseThrow(() -> new IllegalArgumentException("Upload request not found")); }
+    public UploadVerification verify(UploadSubmission submission) { return verification.verify(submission); }
     public void revoke(long requestId) { if (requestId > 0) { repository.revokeRequest(requestId); if (audit != null) audit.record("UPLOAD_REQUEST_REVOKED", "request=" + requestId); } }
 
     public void reject(long submissionId, String reviewer, String reason) {
@@ -79,6 +81,8 @@ public final class UploadRequestService {
 
     public Document accept(long submissionId, String reviewer, String documentName, LocalDate expiresOn, String notes) {
         UploadSubmission submission = pending(submissionId);
+        UploadVerification result = verify(submission);
+        if (result.status() != UploadVerificationStatus.VERIFIED) throw new IllegalArgumentException("Upload cannot be accepted until automatic verification passes: " + String.join(" ", result.checks()));
         UploadRequest request = repository.findRequest(submission.requestId()).orElseThrow(() -> new IllegalArgumentException("Upload request not found"));
         Profile profile = profiles.list().stream().filter(value -> value.id() == request.profileId()).findFirst().orElseThrow(() -> new IllegalArgumentException("Subcontractor profile no longer exists"));
         if (expiresOn == null) throw new IllegalArgumentException("Expiration date is required before accepting an upload");

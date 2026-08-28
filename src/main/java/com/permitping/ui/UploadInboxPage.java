@@ -25,7 +25,7 @@ public final class UploadInboxPage extends BorderPane {
         list.setCellFactory(view -> new ListCell<>() { @Override protected void updateItem(UploadSubmission item, boolean empty) { super.updateItem(item, empty); if (empty || item == null) { setText(null); setGraphic(null); return; } UploadRequest request = uploads.requestFor(item); setText(request.project() + "  ·  " + request.documentType() + "  ·  " + item.originalFilename()); } });
         Button accept = new Button("Accept selected"); accept.getStyleClass().add("primary"); accept.setDisable(true);
         Button reject = new Button("Reject selected"); reject.getStyleClass().add("danger"); reject.setDisable(true);
-        list.getSelectionModel().selectedItemProperty().addListener((o, old, value) -> { boolean disabled = value == null; accept.setDisable(disabled); reject.setDisable(disabled); showDetails(value); });
+        list.getSelectionModel().selectedItemProperty().addListener((o, old, value) -> { boolean disabled = value == null || uploads.verify(value).status() != UploadVerificationStatus.VERIFIED; accept.setDisable(disabled); reject.setDisable(value == null); showDetails(value); });
         accept.setOnAction(e -> accept(list.getSelectionModel().getSelectedItem())); reject.setOnAction(e -> reject(list.getSelectionModel().getSelectedItem()));
         details.setWrapText(true); details.getStyleClass().add("helper-text");
         FlowPane actions = new FlowPane(10, 8, accept, reject); actions.getStyleClass().add("toolbar");
@@ -33,7 +33,7 @@ public final class UploadInboxPage extends BorderPane {
         SplitPane split = new SplitPane(left, detailCard); split.setDividerPositions(.65); VBox card = new VBox(14, split); card.getStyleClass().addAll("card", "assignments-card"); setCenter(card); refresh();
     }
     public void refresh() { list.setItems(FXCollections.observableArrayList(uploads.pendingSubmissions(200))); showDetails(list.getSelectionModel().getSelectedItem()); }
-    private void showDetails(UploadSubmission submission) { if (submission == null) { details.setText("Select an upload to review it."); return; } UploadRequest request = uploads.requestFor(submission); details.setText("Project: " + request.project() + "\nDocument type: " + request.documentType() + "\nFilename: " + submission.originalFilename() + "\nSize: " + submission.sizeBytes() + " bytes\nSubmitted: " + submission.submittedAt() + "\nStatus: Pending review"); }
+    private void showDetails(UploadSubmission submission) { if (submission == null) { details.setText("Select an upload to review it."); return; } UploadRequest request = uploads.requestFor(submission); UploadVerification verification = uploads.verify(submission); details.setText("Project: " + request.project() + "\nDocument type: " + request.documentType() + "\nFilename: " + submission.originalFilename() + "\nSize: " + submission.sizeBytes() + " bytes\nSubmitted: " + submission.submittedAt() + "\nStatus: Pending review\nAutomatic verification: " + verification.status() + "\n" + String.join("\n", verification.checks())); }
     private void accept(UploadSubmission submission) {
         if (submission == null) return;
         UploadRequest request = uploads.requestFor(submission);

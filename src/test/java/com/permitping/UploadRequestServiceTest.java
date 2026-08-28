@@ -39,7 +39,7 @@ final class UploadRequestServiceTest {
         DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), CLOCK);
         UploadRequestService service = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, new FileStorage(temp.resolve("files")), CLOCK);
         UploadInvite invite = service.create(profileId, "Oak Street", "License", Duration.ofDays(30));
-        Path source = temp.resolve("license.pdf"); Files.writeString(source, "test document");
+        Path source = temp.resolve("license.pdf"); Files.write(source, "%PDF-1.7\nPermitPing test document\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
 
         UploadSubmission submission = service.submit(invite.token(), "../../license.pdf", "application/pdf", source);
 
@@ -51,5 +51,23 @@ final class UploadRequestServiceTest {
         assertEquals(UploadSubmissionStatus.ACCEPTED, new SqliteUploadRequestRepository(database).findSubmission(submission.id()).orElseThrow().status());
         assertEquals(1, documents.list().size());
         assertThrows(IllegalArgumentException.class, () -> service.accept(submission.id(), "reviewer", "Duplicate", LocalDate.of(2027, 1, 1), ""));
+    }
+
+    @Test void suspiciousFileIsHeldForReviewAndCannotBecomeEvidence() throws Exception {
+        Path db = temp.resolve("permitping.db"); Database database = new Database(db);
+        ProfileService profiles = new ProfileService(new SqliteProfileRepository(database));
+        profiles.save(new Profile(0, "Northside Electric", ProfileType.COMPANY, "", "", ""));
+        long profileId = profiles.list().get(0).id();
+        DocumentService documents = new DocumentService(new SqliteDocumentRepository(database), CLOCK);
+        UploadRequestService service = new UploadRequestService(new SqliteUploadRequestRepository(database), profiles, documents, new FileStorage(temp.resolve("files")), CLOCK);
+        UploadInvite invite = service.create(profileId, "Oak Street", "License", Duration.ofDays(30));
+        Path source = temp.resolve("license.pdf"); Files.writeString(source, "not actually a PDF");
+
+        UploadSubmission submission = service.submit(invite.token(), "license.pdf", "application/pdf", source);
+
+        assertEquals(UploadVerificationStatus.NEEDS_REVIEW, service.verify(submission).status());
+        assertThrows(IllegalArgumentException.class, () -> service.accept(submission.id(), "reviewer", "Northside license", LocalDate.of(2027, 1, 1), ""));
+        assertTrue(documents.list().isEmpty());
+        assertEquals(UploadSubmissionStatus.PENDING, new SqliteUploadRequestRepository(database).findSubmission(submission.id()).orElseThrow().status());
     }
 }

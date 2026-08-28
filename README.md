@@ -12,7 +12,7 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Split document details panel with file, version history, archive, renew, and edit actions.
 - Manage profiles with edit, archive, restore, delete, contact validation, detail summaries, and notification preferences.
 - Manage separate email/SMS reminder subscriptions with explicit consent evidence, local suppression controls, unsubscribe history, and provider opt-out enforcement.
-- Create secure, expiring subcontractor upload requests; accept or reject submitted files from a review inbox before they become compliance evidence.
+- Create secure, expiring subcontractor upload requests; automatically pre-verify submitted files and accept or reject them from a review inbox before they become compliance evidence.
 - Assign and unassign contractors from projects with readiness status and issue details.
 - Project readiness tracking with Ready, At Risk, and Blocked states, plus configurable per-project requirement templates enforced against each assigned subcontractor.
 - Global search across documents, profiles, projects, and assignments, with locally saved search filters.
@@ -52,6 +52,8 @@ SendGrid unsubscribe groups must be configured before email can be sent. PermitP
 These controls are product safeguards, not legal advice. The operator remains responsible for obtaining valid consent, preserving evidence, honoring applicable country/state rules, and configuring provider sender registration. PermitPing has no hosted inbound webhook, so an email unsubscribe performed in SendGrid is enforced by SendGrid but is not automatically copied into the local subscription table; use **Manage subscriptions** to keep the local record aligned. Twilio's provider opt-out remains authoritative for SMS.
 
 ## Subcontractor self-upload
+
+Before an upload can become compliance evidence, PermitPing verifies that the stored file remains inside managed storage, its recorded size has not changed, its SHA-256 can be calculated, and its bytes match the claimed PDF/image/Word extension. A signature or content-type mismatch is held for manual review; these checks do not establish that the document is genuine, current, or legally sufficient.
 
 The upload portal is disabled unless `PERMITPING_UPLOAD_ENABLED` is `true`. In the Assignments page, select an approved subcontractor and choose **Request documents**. PermitPing creates a per-request random token; only its SHA-256 hash is stored in SQLite. Links expire after 1–90 days, can be revoked, accept only PDF/image/Word files up to 10 MB, and never expose the local database path. Uploaded files enter **Review uploads** as pending and do not affect clearance until a reviewer accepts them and supplies the expiration date.
 
@@ -114,7 +116,7 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token and review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 80 passing tests.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, and review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 81 passing tests.
 
 ## Operational notes
 
