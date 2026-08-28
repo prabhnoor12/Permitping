@@ -215,6 +215,22 @@ class PersistenceTest {
         }
     }
 
+    @Test void backupRejectsArchivesWithTooManyEntries() throws Exception {
+        Path db = Files.createTempFile("permitping-entry-limit-", ".db");
+        Path backup = Files.createTempFile("permitping-entry-limit-", ".zip");
+        try {
+            try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(backup))) {
+                for (int i = 0; i < 10_001; i++) {
+                    output.putNextEntry(new ZipEntry("documents/file-" + i));
+                    output.closeEntry();
+                }
+            }
+            assertThrows(IllegalStateException.class, () -> new BackupService(db).verify(backup));
+        } finally {
+            Files.deleteIfExists(db); Files.deleteIfExists(Path.of(db + "-wal")); Files.deleteIfExists(Path.of(db + "-shm")); Files.deleteIfExists(backup);
+        }
+    }
+
     private void deleteTree(Path directory) {
         if (!Files.exists(directory)) return;
         try (Stream<Path> paths = Files.walk(directory)) {

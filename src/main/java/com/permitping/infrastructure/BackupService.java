@@ -16,6 +16,9 @@ import java.util.zip.ZipOutputStream;
 
 public final class BackupService {
     private static final DateTimeFormatter BACKUP_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS");
+    private static final long MAX_BACKUP_ENTRY_BYTES = 256L * 1024 * 1024;
+    private static final long MAX_BACKUP_TOTAL_BYTES = 2L * 1024 * 1024 * 1024;
+    private static final int MAX_BACKUP_ENTRIES = 10_000;
     private final Path databasePath;
     private final Path documentDirectory;
 
@@ -101,7 +104,7 @@ public final class BackupService {
     private void addFile(ZipOutputStream zip, Path file, String entryName) throws Exception {
         zip.putNextEntry(new ZipEntry(entryName));
         try (InputStream input = Files.newInputStream(file)) {
-            input.transferTo(zip);
+            copyLimited(input, zip, MAX_BACKUP_ENTRY_BYTES, entryName);
         } finally {
             zip.closeEntry();
         }
@@ -111,14 +114,22 @@ public final class BackupService {
         try (ZipFile zip = new ZipFile(bundle.toFile())) {
             ZipEntry database = validateBundleEntries(zip);
             Path extracted = Files.createTempFile("permitping-verify-", ".db");
-            try (InputStream input = zip.getInputStream(database)) {
-                Files.copy(input, extracted, StandardCopyOption.REPLACE_EXISTING);
-            } finally {
-                try {
-                    verifyDatabase(extracted);
-                } finally {
-                    Files.deleteIfExists(extracted);
+            long totalBytes;
+            try {
+                try (InputStream input = zip.getInputStream(database); OutputStream output = Files.newOutputStream(extracted)) {
+                    totalBytes = copyLimited(input, output, MAX_BACKUP_ENTRY_BYTES, database.getName());
                 }
+                Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (entry.isDirectory() || !entry.getName().startsWith("documents/")) continue;
+                    try (InputStream input = zip.getInputStream(entry)) {
+                        totalBytes = addWithinLimit(totalBytes, copyLimited(input, OutputStream.nullOutputStream(), MAX_BACKUP_ENTRY_BYTES, entry.getName()), MAX_BACKUP_TOTAL_BYTES, entry.getName());
+                    }
+                }
+                verifyDatabase(extracted);
+            } finally {
+                Files.deleteIfExists(extracted);
             }
         }
     }
@@ -126,10 +137,15 @@ public final class BackupService {
     private ZipEntry validateBundleEntries(ZipFile zip) throws Exception {
         ZipEntry database = null;
         Set<String> names = new HashSet<>();
+        long declaredBytes = 0;
+        int entryCount = 0;
         Enumeration<? extends ZipEntry> entries = zip.entries();
         while (entries.hasMoreElements()) {
             ZipEntry entry = entries.nextElement();
+            if (++entryCount > MAX_BACKUP_ENTRIES) throw new IllegalStateException("Backup contains too many entries");
             if (!names.add(entry.getName())) throw new IllegalStateException("Backup contains duplicate ZIP entries");
+            if (entry.getSize() > MAX_BACKUP_ENTRY_BYTES) throw new IllegalStateException("Backup entry is too large: " + entry.getName());
+            if (entry.getSize() > 0) declaredBytes = addWithinLimit(declaredBytes, entry.getSize(), MAX_BACKUP_TOTAL_BYTES, entry.getName());
             if ("permitping.db".equals(entry.getName())) {
                 if (entry.isDirectory()) throw new IllegalStateException("Backup database entry is a directory");
                 database = entry;
@@ -159,10 +175,11 @@ public final class BackupService {
         Files.createDirectories(stagedDocuments);
         try (ZipFile zip = new ZipFile(bundle.toFile())) {
             ZipEntry database = validateBundleEntries(zip);
-            try (InputStream input = zip.getInputStream(database)) {
-                Files.copy(input, stagedDatabase, StandardCopyOption.REPLACE_EXISTING);
+            try (InputStream input = zip.getInputStream(database); OutputStream output = Files.newOutputStream(stagedDatabase)) {
+                copyLimited(input, output, MAX_BACKUP_ENTRY_BYTES, database.getName());
             }
             Enumeration<? extends ZipEntry> entries = zip.entries();
+            long totalBytes = Files.size(stagedDatabase);
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 if (!entry.getName().startsWith("documents/") || entry.isDirectory()) continue;
@@ -170,8 +187,9 @@ public final class BackupService {
                 Path target = stagedDocuments.resolve(relative).normalize();
                 if (!target.startsWith(stagedDocuments)) throw new IllegalStateException("Backup contains an unsafe document path");
                 Files.createDirectories(target.getParent());
-                try (InputStream input = zip.getInputStream(entry)) {
-                    Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
+                try (InputStream input = zip.getInputStream(entry); OutputStream output = Files.newOutputStream(target)) {
+                    long copied = copyLimited(input, output, MAX_BACKUP_ENTRY_BYTES, entry.getName());
+                    totalBytes = addWithinLimit(totalBytes, copied, MAX_BACKUP_TOTAL_BYTES, entry.getName());
                 }
             }
         }
@@ -309,5 +327,20 @@ public final class BackupService {
 
     private String timestamp() { return LocalDateTime.now().format(BACKUP_TIME); }
     private String shortId() { return UUID.randomUUID().toString().substring(0, 8); }
+    private long copyLimited(InputStream input, OutputStream output, long limit, String name) throws IOException {
+        byte[] buffer = new byte[8192];
+        long total = 0;
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            total += read;
+            if (total > limit) throw new IOException("Backup entry exceeds the permitted size: " + name);
+            output.write(buffer, 0, read);
+        }
+        return total;
+    }
+    private long addWithinLimit(long current, long additional, long limit, String name) throws IOException {
+        if (additional < 0 || current > limit - additional) throw new IOException("Backup contents exceed the permitted size near: " + name);
+        return current + additional;
+    }
     private record MovedArtifact(Path original, Path safetyCopy) { }
 }

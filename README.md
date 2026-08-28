@@ -100,6 +100,8 @@ The project configures the Maven compiler to fork `javac`. This is important on 
 
 The database is created at `data/permitping.db`, managed files are stored under `data/documents/`, and portable backup bundles are stored under `data/backups/`. New backups use `.zip` bundles containing both the database and managed files; older `.db` database-only backups can still be restored. These runtime files are ignored by Git.
 
+Backup verification rejects unsafe document paths, duplicate or unsupported entries, archives with more than 10,000 entries, entries larger than 256 MB, or total bundle content larger than 2 GB. Restore stages and integrity-checks the database before installing it and keeps safety copies of the previous data.
+
 ## Architecture
 
 ```text
@@ -125,7 +127,7 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, content analysis, automatic document chasing and encrypted outbox retries, review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 88 passing tests.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, per-project clearance rules, subcontractor upload token, file-integrity verification, content analysis, automatic document chasing and encrypted outbox retries, review flows, reminders and delivery eligibility, subscription restrictions and history, authentication and password rules, document versioning, file storage, exports, SendGrid and Twilio integration, JavaFX UI behavior, stale-record protection, backup archive safety, and SQLite persistence. The current suite contains 89 passing tests.
 
 ## Operational notes
 
