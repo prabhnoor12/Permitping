@@ -57,4 +57,48 @@ class ReminderTest {
         ReminderService service = new ReminderService(documents, reminders, CLOCK);
         assertFalse(service.pending().isEmpty());
     }
+
+    @Test void expiredDocumentProducesOneCatchUpReminder() {
+        Document document = new Document(4, "Permit", "Permit", "Acme", "Job", LocalDate.of(2026, 8, 25), "", "");
+        ReminderRepository reminders = new ReminderRepository() {
+            final List<Reminder> sent = new ArrayList<>();
+            public List<Integer> enabledThresholds() { return List.of(30, 7); }
+            public void setThresholdEnabled(int days, boolean enabled) { }
+            public boolean wasSent(long documentId, int days) { return sent.stream().anyMatch(r -> r.documentId() == documentId && r.daysBeforeExpiry() == days); }
+            public void markSent(long documentId, int days, LocalDateTime at) { sent.add(new Reminder(sent.size() + 1, documentId, days, at)); }
+        };
+        DocumentService documents = new DocumentService(new DocumentRepository() { public List<Document> findAll(){return List.of(document);} public Document save(Document d){return d;} public void delete(long id){} }, CLOCK);
+        ReminderService service = new ReminderService(documents, reminders, CLOCK);
+
+        ReminderNotice notice = service.pending().get(0);
+
+        assertEquals(0, notice.daysBeforeExpiry());
+        assertEquals("Permit for Acme expired 1 day ago", notice.message(CLOCK));
+        service.markSent(notice);
+        assertTrue(service.pending().isEmpty());
+    }
+
+    @Test void changingExpiryDateStartsAFreshReminderCycle() {
+        List<Document> store = new ArrayList<>(List.of(
+            new Document(5, "Permit", "Permit", "Acme", "Job", LocalDate.of(2026, 9, 5), "", "")
+        ));
+        ReminderRepository reminders = new ReminderRepository() {
+            final Set<String> sent = new HashSet<>();
+            public List<Integer> enabledThresholds() { return List.of(30); }
+            public void setThresholdEnabled(int days, boolean enabled) { }
+            public boolean wasSent(long documentId, int days) { return false; }
+            public boolean wasSent(long documentId, int days, LocalDate expiresOn) { return sent.contains(key(documentId, days, expiresOn)); }
+            public void markSent(long documentId, int days, LocalDateTime at) { }
+            public void markSent(long documentId, int days, LocalDate expiresOn, LocalDateTime at) { sent.add(key(documentId, days, expiresOn)); }
+            private String key(long documentId, int days, LocalDate expiresOn) { return documentId + ":" + days + ":" + expiresOn; }
+        };
+        DocumentService documents = new DocumentService(new DocumentRepository() { public List<Document> findAll(){return List.copyOf(store);} public Document save(Document d){store.set(0, d);return d;} public void delete(long id){} }, CLOCK);
+        ReminderService service = new ReminderService(documents, reminders, CLOCK);
+
+        service.markSent(service.pending().get(0));
+        assertTrue(service.pending().isEmpty());
+        store.set(0, new Document(5, "Permit", "Permit", "Acme", "Job", LocalDate.of(2026, 9, 15), "", ""));
+
+        assertEquals(1, service.pending().size());
+    }
 }

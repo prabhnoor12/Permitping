@@ -18,9 +18,9 @@ public final class SqliteAssignmentRepository implements AssignmentRepository {
     @Override public void save(ProjectAssignment assignment) {
         String sql = assignment.id() == 0 ? "INSERT INTO project_assignments(project_name,profile_id,status,notes) VALUES(?,?,?,?)" : "UPDATE project_assignments SET project_name=?,profile_id=?,status=?,notes=? WHERE id=?";
         try (Connection c = database.connect(); PreparedStatement p = c.prepareStatement(sql)) {
-            p.setString(1, assignment.project()); p.setLong(2, assignment.profileId()); p.setString(3, assignment.status().name()); p.setString(4, assignment.notes()); if (assignment.id() != 0) p.setLong(5, assignment.id()); p.executeUpdate();
+            p.setString(1, assignment.project()); p.setLong(2, assignment.profileId()); p.setString(3, assignment.status().name()); p.setString(4, assignment.notes()); if (assignment.id() != 0) p.setLong(5, assignment.id()); int affected = p.executeUpdate(); if (assignment.id() != 0 && affected != 1) throw new IllegalArgumentException("Assignment not found");
         } catch (SQLException e) { throw failure("save", e); }
     }
-    @Override public void delete(long id) { try(Connection c=database.connect();PreparedStatement p=c.prepareStatement("DELETE FROM project_assignments WHERE id=?")){p.setLong(1,id);p.executeUpdate();}catch(SQLException e){throw failure("delete",e);} }
+    @Override public void delete(long id) { try(Connection c=database.connect();PreparedStatement p=c.prepareStatement("DELETE FROM project_assignments WHERE id=?")){p.setLong(1,id);if(p.executeUpdate()!=1)throw new IllegalArgumentException("Assignment not found");}catch(SQLException e){throw failure("delete",e);} }
     private IllegalStateException failure(String action, SQLException e) { return new IllegalStateException("Could not " + action + " assignments", e); }
 }

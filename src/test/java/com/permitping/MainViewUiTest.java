@@ -9,6 +9,9 @@ import javafx.scene.control.ScrollPane;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
+import com.permitping.domain.Permission;
+import com.permitping.domain.Role;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,6 +33,47 @@ final class MainViewUiTest {
             assertTrue(view.getCenter() instanceof ScrollPane, "The content shell must remain scrollable at the minimum width");
             assertTrue(view.getWidth() >= 980 || scene.getWidth() >= 980);
             assertTrue(((ScrollPane) view.getCenter()).getViewportBounds().getWidth() > 0, "The content shell must receive layout width");
+        });
+    }
+
+    @Test void readOnlyRoleDoesNotSeeMutationAreas() throws Exception {
+        FxTestSupport.runAndWait(() -> {
+            DocumentService service = new DocumentService(new DocumentRepository() {
+                public List<Document> findAll() { return List.of(); }
+                public Document save(Document value) { return value; }
+                public void delete(long id) { }
+            });
+            MainView view = new MainView(service, null, null, null, null, null,
+                    Set.of(Permission.VIEW_DOCUMENTS, Permission.VIEW_PROFILES, Permission.VIEW_REPORTS));
+            view.applyCss();
+
+            var navigation = view.lookupAll(".nav").stream().map(node -> ((javafx.scene.control.Button) node).getText()).toList();
+            assertTrue(navigation.containsAll(List.of("Dashboard", "All documents", "Profiles", "Archived")));
+            assertTrue(navigation.stream().noneMatch(text -> List.of("Assignments", "Reminders", "System settings").contains(text)));
+            assertTrue(view.lookupAll(".primary").stream().map(javafx.scene.Node::isVisible).noneMatch(Boolean::booleanValue));
+        });
+    }
+
+    @Test void detectsPermissionChangesEvenWhenCustomRoleNameStaysTheSame() {
+        Role original = Role.custom("Field staff", Set.of(Permission.VIEW_DOCUMENTS));
+        Role changed = Role.custom("Field staff", Set.of());
+        var authenticated = new com.permitping.domain.AuthUser(1, "field", "Field staff", original, true);
+        var current = new com.permitping.domain.AuthUser(1, "field", "Field staff", changed, true);
+
+        assertTrue(MainView.permissionsChanged(current, authenticated));
+        assertTrue(!MainView.permissionsChanged(authenticated, authenticated));
+    }
+
+    @Test void exposesAuditHistoryToUsersWithAuditPermission() throws Exception {
+        FxTestSupport.runAndWait(() -> {
+            DocumentService service = new DocumentService(new DocumentRepository() {
+                public List<Document> findAll() { return List.of(); }
+                public Document save(Document value) { return value; }
+                public void delete(long id) { }
+            });
+            MainView view = new MainView(service, null, null, null, null, null, Set.of(Permission.VIEW_AUDIT));
+            var navigation = view.lookupAll(".nav").stream().map(node -> ((javafx.scene.control.Button) node).getText()).toList();
+            assertTrue(navigation.contains("Activity history"));
         });
     }
 }

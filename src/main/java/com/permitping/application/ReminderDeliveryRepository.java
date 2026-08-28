@@ -5,6 +5,13 @@ import java.util.List;
 
 public interface ReminderDeliveryRepository {
     void save(ReminderDelivery delivery);
+    default void save(ReminderDelivery delivery, java.time.LocalDate expiresOn) { save(delivery); }
     List<ReminderDelivery> recent(int limit);
     boolean hasSuccessfulDelivery(long documentId, long profileId, int daysBeforeExpiry);
+    default boolean hasSuccessfulDelivery(long documentId, long profileId, int daysBeforeExpiry, java.time.LocalDate expiresOn) {
+        return hasSuccessfulDelivery(documentId, profileId, daysBeforeExpiry);
+    }
+    default boolean hasSkippedDelivery(long documentId, long profileId, int daysBeforeExpiry, java.time.LocalDate expiresOn, String recipient, String reason) {
+        return false;
+    }
 }

@@ -38,6 +38,16 @@ final class ReminderDeliveryServiceTest {
         assertEquals(7, result.get(0).profileId());
     }
 
+    @Test void doesNotDuplicateAnUnchangedSkippedDelivery() {
+        FakeDeliveryRepository deliveryStore = new FakeDeliveryRepository();
+        List<OutgoingMessage> messages = new ArrayList<>();
+        ReminderDeliveryService service = service(document(16, 7), profile(7, false, NotificationChannel.EMAIL, "crew@example.com"), new FakeReminderRepository(), deliveryStore, messages, DeliveryResult.sent("unused"));
+
+        assertEquals(1, service.sendPending().size());
+        assertTrue(service.sendPending().isEmpty());
+        assertEquals(1, deliveryStore.saved.size());
+    }
+
     @Test void failedDeliveryRemainsRetryable() {
         FakeReminderRepository reminderStore = new FakeReminderRepository();
         FakeDeliveryRepository deliveryStore = new FakeDeliveryRepository();
@@ -107,5 +117,10 @@ final class ReminderDeliveryServiceTest {
         public void save(ReminderDelivery delivery) { saved.add(delivery); }
         public List<ReminderDelivery> recent(int limit) { return saved; }
         public boolean hasSuccessfulDelivery(long documentId, long profileId, int days) { return successful; }
+        public boolean hasSkippedDelivery(long documentId, long profileId, int days, LocalDate expiresOn, String recipient, String reason) {
+            return saved.stream().anyMatch(delivery -> delivery.documentId() == documentId && delivery.profileId() == profileId
+                && delivery.daysBeforeExpiry() == days && delivery.status() == DeliveryStatus.SKIPPED
+                && delivery.recipient().equals(recipient) && delivery.errorMessage().equals(reason));
+        }
     }
 }

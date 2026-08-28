@@ -22,21 +22,23 @@ public final class ReminderDeliveryService {
         this.reminders = reminders; this.profiles = profiles; this.deliveries = deliveries;
         this.emailSender = emailSender; this.clock = clock;
     }
-    public List<ReminderDelivery> sendPending() {
+    public synchronized List<ReminderDelivery> sendPending() {
         List<ReminderDelivery> results = new ArrayList<>();
         for (ReminderNotice notice : reminders.pending()) {
             Document document = notice.document();
             Profile profile = profiles.list().stream().filter(p -> p.id() == document.holderProfileId()).findFirst().orElse(null);
             if (profile == null || !profile.notificationsEnabled() || profile.notificationChannel() != NotificationChannel.EMAIL && profile.notificationChannel() != NotificationChannel.EMAIL_AND_SMS) {
-                results.add(record(document, profile, notice, DeliveryStatus.SKIPPED, "", "Notifications are disabled or no email channel is configured.", 0));
+                String reason = "Notifications are disabled or no email channel is configured.";
+                if (!deliveries.hasSkippedDelivery(document.id(), profile == null ? 0 : profile.id(), notice.daysBeforeExpiry(), document.expiresOn(), recipient(profile), reason)) results.add(record(document, profile, notice, DeliveryStatus.SKIPPED, "", reason, 0));
                 continue;
             }
             if (profile.email() == null || profile.email().isBlank()) {
-                results.add(record(document, profile, notice, DeliveryStatus.SKIPPED, "", "No email address is configured.", 0));
+                String reason = "No email address is configured.";
+                if (!deliveries.hasSkippedDelivery(document.id(), profile.id(), notice.daysBeforeExpiry(), document.expiresOn(), recipient(profile), reason)) results.add(record(document, profile, notice, DeliveryStatus.SKIPPED, "", reason, 0));
                 continue;
             }
-            if (deliveries.hasSuccessfulDelivery(document.id(), profile.id(), notice.daysBeforeExpiry())) continue;
-            OutgoingMessage message = new OutgoingMessage(profile.email(), "PermitPing reminder: " + document.name(), notice.message());
+            if (deliveries.hasSuccessfulDelivery(document.id(), profile.id(), notice.daysBeforeExpiry(), document.expiresOn())) continue;
+            OutgoingMessage message = new OutgoingMessage(profile.email(), "PermitPing reminder: " + document.name(), notice.message(clock));
             DeliveryResult result;
             try { result = emailSender.send(message); } catch (RuntimeException ex) { result = DeliveryResult.failed(ex.getMessage()); }
             ReminderDelivery delivery = record(document, profile, notice, result.successful() ? DeliveryStatus.SENT : DeliveryStatus.FAILED, result.providerMessageId(), result.errorMessage(), 1);
@@ -46,7 +48,8 @@ public final class ReminderDeliveryService {
         return results;
     }
     private ReminderDelivery record(Document document, Profile profile, ReminderNotice notice, DeliveryStatus status, String providerId, String error, int attempts) {
-        ReminderDelivery delivery = new ReminderDelivery(0, document.id(), profile == null ? 0 : profile.id(), notice.daysBeforeExpiry(), "EMAIL", profile == null ? "" : profile.email(), status, LocalDateTime.now(clock), providerId == null ? "" : providerId, error == null ? "" : error, attempts);
-        deliveries.save(delivery); return delivery;
+        ReminderDelivery delivery = new ReminderDelivery(0, document.id(), profile == null ? 0 : profile.id(), notice.daysBeforeExpiry(), "EMAIL", recipient(profile), status, LocalDateTime.now(clock), providerId == null ? "" : providerId, error == null ? "" : error, attempts);
+        deliveries.save(delivery, document.expiresOn()); return delivery;
     }
+    private String recipient(Profile profile) { return profile == null || profile.email() == null ? "" : profile.email(); }
 }

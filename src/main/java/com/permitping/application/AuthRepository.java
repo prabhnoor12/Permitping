@@ -11,6 +11,7 @@ public interface AuthRepository {
     List<AuthUser> findUsers();
     void setActive(long id, boolean active);
     void setRole(long id, Role role);
+    default void updatePassword(long id, String passwordHash) { throw new UnsupportedOperationException("Password changes are not supported by this repository"); }
     default List<Role> findRoles() { return List.of(Role.ADMIN, Role.MANAGER, Role.EDITOR, Role.VIEWER); }
     default Role findRole(String name) { return Role.builtIn(name); }
     default void saveRole(Role role) { throw new UnsupportedOperationException("Custom roles are not supported by this repository"); }

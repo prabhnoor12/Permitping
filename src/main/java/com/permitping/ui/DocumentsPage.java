@@ -27,10 +27,14 @@ public final class DocumentsPage extends BorderPane {
     }
     public DocumentsPage(DocumentService documents, ProfileService profiles, FileStorage files,
                          DocumentVersionService versions, NotificationService notifications, Runnable openSearch, Runnable openReports) {
+        this(documents, profiles, files, versions, notifications, openSearch, openReports, true, true);
+    }
+    public DocumentsPage(DocumentService documents, ProfileService profiles, FileStorage files,
+                         DocumentVersionService versions, NotificationService notifications, Runnable openSearch, Runnable openReports, boolean canManage, boolean canReports) {
         this.documents = documents;
         this.notifications = notifications;
         this.form = new DocumentForm(documents, profiles, files, versions, notifications);
-        this.details = new DocumentDetailView(files, versions, notifications, profiles, this::edit, this::renew, this::archive);
+        this.details = new DocumentDetailView(files, versions, notifications, profiles, this::edit, this::renew, this::archive, canManage);
         this.table = new DocumentTableView(documents, files, profiles, details::show);
         table.getSelectionModel().getSelectedItems().addListener((javafx.collections.ListChangeListener<Document>) change -> { var selected = table.selectedDocuments(); if (selected.size() > 1) details.showSelectionSummary(selected.size()); else if (selected.size() == 1) details.show(selected.get(0)); });
         getStyleClass().add("page-shell");
@@ -43,10 +47,10 @@ public final class DocumentsPage extends BorderPane {
         Button clearFilters = new Button("Clear all filters"); clearFilters.getStyleClass().add("secondary"); clearFilters.setOnAction(event -> { filter.setValue("All"); table.clearSearch(); table.setQuickFilter("All"); updateSummary(filter, summary); });
         FlowPane filterBar = new FlowPane(10, 8, new Label("Quick filter"), filter, clearFilters, summary); filterBar.getStyleClass().add("filter-chips");
         setTop(new VBox(10, header, filterBar));
-        Button add = new Button("+ Add document"); add.getStyleClass().add("primary"); add.setOnAction(event -> form.show(null, saved -> refresh()));
-        Button archive = new Button("Archive selected"); archive.getStyleClass().add("danger"); archive.setDisable(true); table.getSelectionModel().getSelectedItems().addListener((javafx.collections.ListChangeListener<Document>) change -> archive.setDisable(table.selectedDocuments().isEmpty())); archive.setOnAction(event -> archiveSelected());
+        Button add = new Button("+ Add document"); add.getStyleClass().add("primary"); add.setVisible(canManage); add.setManaged(canManage); add.setOnAction(event -> form.show(null, saved -> refresh()));
+        Button archive = new Button("Archive selected"); archive.getStyleClass().add("danger"); archive.setVisible(canManage); archive.setManaged(canManage); archive.setDisable(true); table.getSelectionModel().getSelectedItems().addListener((javafx.collections.ListChangeListener<Document>) change -> archive.setDisable(table.selectedDocuments().isEmpty())); archive.setOnAction(event -> archiveSelected());
         Button search = new Button("Global search"); search.getStyleClass().add("secondary"); if (openSearch != null) search.setOnAction(event -> openSearch.run());
-        Button reports = new Button("Reports"); reports.getStyleClass().add("secondary"); if (openReports != null) reports.setOnAction(event -> openReports.run());
+        Button reports = new Button("Reports"); reports.getStyleClass().add("secondary"); reports.setVisible(canReports && openReports != null); reports.setManaged(canReports && openReports != null); if (openReports != null) reports.setOnAction(event -> openReports.run());
         FlowPane actionButtons = new FlowPane(10, 8, add, archive, search, reports); actionButtons.getStyleClass().add("toolbar");
         SplitPane split = new SplitPane(table, details); split.setDividerPositions(.68); split.setPadding(new Insets(0)); split.getStyleClass().add("document-split"); details.setPrefWidth(315); split.widthProperty().addListener((observable, oldWidth, newWidth) -> split.setOrientation(newWidth.doubleValue() < 760 ? Orientation.VERTICAL : Orientation.HORIZONTAL)); split.setOrientation(Orientation.HORIZONTAL);
         VBox card = new VBox(12, table.toolbar(this::refresh), actionButtons, split); card.getStyleClass().add("card"); VBox.setVgrow(split, Priority.ALWAYS);

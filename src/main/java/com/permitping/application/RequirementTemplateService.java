@@ -8,7 +8,7 @@ public final class RequirementTemplateService {
 
     public RequirementTemplateService(RequirementTemplateRepository repository) { this.repository = repository; }
     public List<RequirementTemplate> list() { return repository.findAll(); }
-    public Long templateIdFor(String project) { return repository.findTemplateIdForProject(project); }
+    public Long templateIdFor(String project) { return repository.findTemplateIdForProject(project == null ? "" : project.trim()); }
     public void assign(String project, long templateId) {
         if (project == null || project.isBlank() || templateId <= 0) return;
         repository.assignToProject(project.trim(), templateId);

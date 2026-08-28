@@ -26,6 +26,10 @@ public final class ProfilesPage extends BorderPane {
     }
 
     public ProfilesPage(ProfileService profiles, DocumentService documents, AssignmentService assignments, NotificationService notifications) {
+        this(profiles, documents, assignments, notifications, true);
+    }
+
+    public ProfilesPage(ProfileService profiles, DocumentService documents, AssignmentService assignments, NotificationService notifications, boolean canManage) {
         this.profiles = profiles;
         this.documents = documents;
         this.assignments = assignments;
@@ -55,6 +59,7 @@ public final class ProfilesPage extends BorderPane {
         Button archive = new Button("Archive selected"); archive.getStyleClass().add("danger"); archive.setDisable(true);
         Button restore = new Button("Restore selected"); restore.getStyleClass().add("secondary"); restore.setDisable(true);
         Button remove = new Button("Delete selected"); remove.getStyleClass().add("danger"); remove.setDisable(true);
+        for (Button action : new Button[]{add, edit, archive, restore, remove}) { action.setVisible(canManage); action.setManaged(canManage); }
         list.getSelectionModel().selectedItemProperty().addListener((obs, old, value) -> { boolean disabled = value == null; edit.setDisable(disabled); archive.setDisable(disabled || value.archived()); restore.setDisable(disabled || !value.archived()); remove.setDisable(disabled); showDetail(value); });
         edit.setOnAction(event -> editProfile(list.getSelectionModel().getSelectedItem()));
         archive.setOnAction(event -> archiveProfile(list.getSelectionModel().getSelectedItem()));
@@ -97,6 +102,6 @@ public final class ProfilesPage extends BorderPane {
     }
     private void archiveProfile(Profile profile) { if(profile == null)return; Alert confirm=new Alert(Alert.AlertType.CONFIRMATION,"Archived profiles stop appearing in holder and assignee pickers.",ButtonType.CANCEL,ButtonType.OK); confirm.setHeaderText("Archive profile"); confirm.showAndWait().filter(b->b==ButtonType.OK).ifPresent(b->{try{profiles.archive(profile.id());refresh();}catch(RuntimeException ex){notifications.error(message(ex));}}); }
     private void restoreProfile(Profile profile) { if (profile == null) return; try { profiles.restore(profile.id()); refresh(); } catch (RuntimeException ex) { notifications.error(message(ex)); } }
-    private void deleteProfile(Profile profile) { if(profile == null)return; Alert confirm=new Alert(Alert.AlertType.CONFIRMATION,"This permanently removes the profile and may fail if assignments still reference it.",ButtonType.CANCEL,ButtonType.OK); confirm.setHeaderText("Delete profile"); confirm.showAndWait().filter(b->b==ButtonType.OK).ifPresent(b->{try{profiles.delete(profile.id());refresh();}catch(RuntimeException ex){notifications.error("Profile could not be deleted. Archive it instead if it is still in use.");}}); }
+    private void deleteProfile(Profile profile) { if(profile == null)return; Alert confirm=new Alert(Alert.AlertType.CONFIRMATION,"This permanently removes the profile only when no documents or assignments are linked to it. Archive it instead to preserve those links.",ButtonType.CANCEL,ButtonType.OK); confirm.setHeaderText("Delete profile"); confirm.showAndWait().filter(b->b==ButtonType.OK).ifPresent(b->{try{profiles.delete(profile.id());refresh();}catch(RuntimeException ex){notifications.error(ex.getMessage()==null?"Profile could not be deleted. Archive it instead if it is still in use.":ex.getMessage());}}); }
     private String message(RuntimeException ex) { return ex.getMessage() == null ? "The profile could not be saved." : ex.getMessage(); }
 }

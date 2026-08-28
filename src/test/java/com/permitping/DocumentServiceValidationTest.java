@@ -53,6 +53,44 @@ final class DocumentServiceValidationTest {
         assertEquals(1, store.size());
     }
 
+    @Test void allowsUpdatingAnExistingDocumentWithoutTreatingItAsADuplicate() {
+        List<Document> store = new java.util.ArrayList<>(List.of(
+            new Document(42, "Annual license", "License", "Acme", "Job", LocalDate.of(2026, 8, 26), "", "")
+        ));
+        DocumentRepository repository = new DocumentRepository() {
+            public List<Document> findAll() { return store; }
+            public Document save(Document document) {
+                store.replaceAll(existing -> existing.id() == document.id() ? document : existing);
+                return document;
+            }
+            public void delete(long id) { }
+        };
+        DocumentService guarded = new DocumentService(repository);
+
+        Document renewed = guarded.save(new Document(42, "Annual license", "License", "Acme", "Job",
+            LocalDate.of(2027, 8, 26), "renewed.pdf", ""));
+
+        assertEquals(42, renewed.id());
+        assertEquals(1, store.size());
+        assertEquals(LocalDate.of(2027, 8, 26), store.get(0).expiresOn());
+    }
+
+    @Test void refusesToRestoreAnArchivedDocumentThatWouldDuplicateAnActiveDocument() {
+        Document active = new Document(1, "Annual license", "License", "Acme", "Job", LocalDate.of(2026, 8, 26), "", "");
+        Document archived = new Document(2, "Annual license", "License", "Acme", "Job", LocalDate.of(2027, 8, 26), "", "");
+        DocumentRepository repository = new DocumentRepository() {
+            public List<Document> findAll() { return List.of(active); }
+            public List<Document> findArchived() { return List.of(archived); }
+            public Document save(Document value) { return value; }
+            public void delete(long id) { }
+            public void restore(long id) { }
+        };
+        DocumentService guarded = new DocumentService(repository);
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> guarded.restore(archived.id()));
+        assertEquals("Cannot restore this document because an active document with the same name, holder, and project already exists", failure.getMessage());
+    }
+
     @Test void searchesAcrossDocumentHolderAndProject() {
         List<Document> store = List.of(
             new Document(1, "Annual license", "License", "Northside Electric", "Oak Street", LocalDate.of(2026, 9, 10), "", ""),

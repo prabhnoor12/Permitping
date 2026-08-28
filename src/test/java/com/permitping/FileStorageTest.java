@@ -44,4 +44,17 @@ final class FileStorageTest {
         assertTrue(storage.isDuplicate(source, null));
         assertFalse(storage.isDuplicate(source, imported.toString()));
     }
+
+    @Test void deletesManagedFilesButLeavesExternalFilesUntouched() throws Exception {
+        Path source = temp.resolve("license.pdf");
+        Files.writeString(source, "license contents");
+        FileStorage storage = new FileStorage(temp.resolve("documents"));
+        Path imported = storage.importFile(source);
+
+        storage.deleteManagedFile(imported);
+        storage.deleteManagedFile(source);
+
+        assertFalse(Files.exists(imported));
+        assertTrue(Files.exists(source));
+    }
 }

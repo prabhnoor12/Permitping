@@ -3,6 +3,7 @@ target/
 data/*.db
 data/*.db-*
 data/documents/
+data/documents.before-restore-*/
 data/backups/
 .idea/
 *.iml

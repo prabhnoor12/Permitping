@@ -30,7 +30,14 @@ public final class DocumentService {
     public List<Document> archived() { return repository.findArchived(); }
     public void delete(long id) { if (id > 0) repository.delete(id); }
     public void archive(long id) { if (id > 0) repository.archive(id); }
-    public void restore(long id) { if (id > 0) repository.restore(id); }
+    public void restore(long id) {
+        if (id <= 0) return;
+        Document archived = archived().stream().filter(document -> document.id() == id).findFirst().orElse(null);
+        if (archived != null && isDuplicate(archived)) {
+            throw new IllegalArgumentException("Cannot restore this document because an active document with the same name, holder, and project already exists");
+        }
+        repository.restore(id);
+    }
     public List<Document> search(String query, String status) {
         String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         return list().stream().filter(d -> q.isBlank() || String.join(" ", safe(d.name()), safe(d.type()), safe(d.holder()), safe(d.project())).toLowerCase(Locale.ROOT).contains(q))

@@ -25,11 +25,17 @@ public final class ProjectReadinessService {
 
     public List<ProjectReadiness> list() {
         Map<String, List<Document>> byProject = new LinkedHashMap<>();
+        Map<String, String> displayNames = new LinkedHashMap<>();
         documents.list().stream()
             .filter(d -> d.project() != null && !d.project().isBlank())
-            .forEach(d -> byProject.computeIfAbsent(d.project().trim(), ignored -> new ArrayList<>()).add(d));
+            .forEach(d -> {
+                String name = d.project().trim();
+                String key = name.toLowerCase(Locale.ROOT);
+                displayNames.putIfAbsent(key, name);
+                byProject.computeIfAbsent(key, ignored -> new ArrayList<>()).add(d);
+            });
         return byProject.entrySet().stream()
-            .map(entry -> assess(entry.getKey(), entry.getValue()))
+            .map(entry -> assess(displayNames.get(entry.getKey()), entry.getValue()))
             .sorted(Comparator.comparing(ProjectReadiness::status).thenComparing(ProjectReadiness::project))
             .toList();
     }

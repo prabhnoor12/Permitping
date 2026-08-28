@@ -39,9 +39,39 @@ public final class AuthService {
     public void deleteRole(AuthUser actor, String name) { require(actor, Permission.MANAGE_USERS); Role role = repository.findRole(name); if (role.system()) throw new SecurityException("Built-in roles cannot be deleted"); if (repository.countUsersWithRole(role.name()) > 0) throw new IllegalStateException("Reassign users before deleting this role"); repository.deleteRole(role.name()); record("Deleted role", role.name()); }
     public void setActive(AuthUser actor, long userId, boolean active) { require(actor, Permission.MANAGE_USERS); if (actor.id() == userId && !active) throw new SecurityException("You cannot deactivate your own account"); repository.setActive(userId, active); record(active ? "Activated user" : "Deactivated user", Long.toString(userId)); }
     public void setRole(AuthUser actor, long userId, Role role) { require(actor, Permission.MANAGE_USERS); if (role == null) throw new IllegalArgumentException("Role is required"); if (actor.id() == userId && !role.equals(Role.ADMIN)) throw new SecurityException("You cannot remove your own administrator role"); Role storedRole = repository.findRole(role.name()); repository.setRole(userId, storedRole); record("Changed user role", userId + " -> " + storedRole.name()); }
-    public void require(AuthUser actor, Permission permission) { if (actor == null || permission == null || !actor.allows(permission)) throw new SecurityException("Permission denied"); }
+    public void changePassword(AuthUser actor, char[] currentPassword, char[] newPassword) {
+        AuthRepository.StoredUser stored = null;
+        try {
+            AuthUser current = validateSession(actor);
+            stored = repository.findByUsername(current.username());
+            if (stored == null || !hasher.matches(currentPassword, stored.passwordHash())) throw new SecurityException("Current password is incorrect");
+            repository.updatePassword(current.id(), hasher.hash(newPassword));
+            record("Changed own password", current.username());
+        } finally {
+            clear(currentPassword); clear(newPassword);
+        }
+    }
+    public void resetPassword(AuthUser actor, long userId, char[] newPassword) {
+        try {
+            require(actor, Permission.MANAGE_USERS);
+            repository.updatePassword(userId, hasher.hash(newPassword));
+            record("Reset user password", Long.toString(userId));
+        } finally { clear(newPassword); }
+    }
+    public void require(AuthUser actor, Permission permission) {
+        if (permission == null || !validateSession(actor).allows(permission)) {
+            throw new SecurityException("Permission denied");
+        }
+    }
+    public AuthUser validateSession(AuthUser actor) {
+        if (actor == null) throw new SecurityException("Session expired");
+        AuthRepository.StoredUser current = repository.findByUsername(actor.username());
+        if (current == null || current.user().id() != actor.id() || !current.user().active()) throw new SecurityException("Session expired");
+        return current.user();
+    }
     private String normalize(String username) { if (username == null || !username.matches("[A-Za-z0-9._-]{3,80}")) throw new IllegalArgumentException("Username must be 3-80 characters and contain only letters, numbers, dots, underscores, or hyphens"); return username.toLowerCase(Locale.ROOT); }
     private String requiredName(String value) { if (value == null || value.isBlank()) throw new IllegalArgumentException("Display name is required"); return value.trim(); }
+    private void clear(char[] value) { if (value != null) java.util.Arrays.fill(value, '\0'); }
     private void record(String action, String subject) { if (audit != null) audit.record(action, subject); }
     private record LoginState(long count, long lastFailureMillis) { }
 }

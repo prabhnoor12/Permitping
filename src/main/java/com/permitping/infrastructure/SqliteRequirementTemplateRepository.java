@@ -27,16 +27,24 @@ public final class SqliteRequirementTemplateRepository implements RequirementTem
 
     @Override public Long findTemplateIdForProject(String project) {
         try (Connection c = database.connect(); PreparedStatement p = c.prepareStatement(
-                "SELECT template_id FROM project_requirement_templates WHERE project_name=?")) {
-            p.setString(1, project); try (ResultSet rs = p.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
+                "SELECT template_id FROM project_requirement_templates WHERE project_name COLLATE NOCASE = ?")) {
+                p.setString(1, project == null ? "" : project.trim()); try (ResultSet rs = p.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
         } catch (SQLException e) { throw failure("load project template", e); }
     }
 
     @Override public void assignToProject(String project, long templateId) {
-        try (Connection c = database.connect(); PreparedStatement p = c.prepareStatement(
-                "INSERT INTO project_requirement_templates(project_name,template_id) VALUES(?,?) " +
-                "ON CONFLICT(project_name) DO UPDATE SET template_id=excluded.template_id")) {
-            p.setString(1, project); p.setLong(2, templateId); p.executeUpdate();
+        try (Connection c = database.connect()) {
+            c.setAutoCommit(false);
+            String normalized = project == null ? "" : project.trim();
+            try (PreparedStatement update = c.prepareStatement("UPDATE project_requirement_templates SET template_id=? WHERE project_name COLLATE NOCASE = ?")) {
+                update.setLong(1, templateId); update.setString(2, normalized);
+                if (update.executeUpdate() == 0) {
+                    try (PreparedStatement insert = c.prepareStatement("INSERT INTO project_requirement_templates(project_name,template_id) VALUES(?,?)")) {
+                        insert.setString(1, normalized); insert.setLong(2, templateId); insert.executeUpdate();
+                    }
+                }
+            }
+            c.commit();
         } catch (SQLException e) { throw failure("assign project template", e); }
     }
 

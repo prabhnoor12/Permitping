@@ -15,14 +15,23 @@ public final class ReminderService {
     public void setThresholdEnabled(int daysBeforeExpiry, boolean enabled) { if (daysBeforeExpiry >= 0) repository.setThresholdEnabled(daysBeforeExpiry, enabled); }
     public List<ReminderNotice> pending() {
         List<ReminderNotice> notices = new ArrayList<>();
+        List<Integer> thresholds = repository.enabledThresholds();
         for (Document document : documents.list()) {
             long days = document.daysUntilExpiry(clock);
-            repository.enabledThresholds().stream().filter(threshold -> days >= 0 && days <= threshold).min(Integer::compareTo).filter(threshold -> !repository.wasSent(document.id(), threshold) && !repository.isSnoozed(document.id(), threshold)).ifPresent(threshold -> notices.add(new ReminderNotice(document, threshold)));
+            if (thresholds.isEmpty()) continue;
+            int threshold = days < 0 ? 0 : thresholds.stream()
+                .filter(value -> days <= value)
+                .min(Integer::compareTo)
+                .orElse(-1);
+            if (threshold >= 0 && !repository.wasSent(document.id(), threshold, document.expiresOn())
+                && !repository.isSnoozed(document.id(), threshold, document.expiresOn())) {
+                notices.add(new ReminderNotice(document, threshold));
+            }
         }
         return notices;
     }
-    public void markSent(ReminderNotice notice) { repository.markSent(notice.document().id(), notice.daysBeforeExpiry(), java.time.LocalDateTime.now(clock)); }
-    public void snooze(ReminderNotice notice, int days) { if (notice != null && days > 0) repository.snooze(notice.document().id(), notice.daysBeforeExpiry(), java.time.LocalDateTime.now(clock).plusDays(days)); }
+    public void markSent(ReminderNotice notice) { repository.markSent(notice.document().id(), notice.daysBeforeExpiry(), notice.document().expiresOn(), java.time.LocalDateTime.now(clock)); }
+    public void snooze(ReminderNotice notice, int days) { if (notice != null && days > 0) repository.snooze(notice.document().id(), notice.daysBeforeExpiry(), notice.document().expiresOn(), java.time.LocalDateTime.now(clock).plusDays(days)); }
     public List<Document> dueForReminder(int daysBeforeExpiry) {
         return documents.list().stream().filter(d -> d.daysUntilExpiry(clock) >= 0 && d.daysUntilExpiry(clock) <= daysBeforeExpiry).toList();
     }

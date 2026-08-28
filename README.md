@@ -15,12 +15,14 @@ PermitPing is a local JavaFX workspace for construction companies managing licen
 - Project readiness tracking with Ready, At Risk, and Blocked states, plus configurable requirement templates for project document types.
 - Global search across documents, profiles, projects, and assignments, with locally saved search filters.
 - Configure reminder thresholds, snooze reminders, manually send pending reminders, and review delivery history.
+- Administrator-only user and role management, including account activation, role assignment, and custom permissions.
+- Sign out and re-authenticate without restarting the application; navigation validates that the signed-in account is still active.
 - Optional SendGrid email delivery with sent, failed, and skipped tracking.
 - CSV exports for active documents, expiring documents, and assignment readiness.
-- Verified local SQLite backups, backup restore with a safety copy, and backup activity history.
+- Verified local backup bundles containing the SQLite database and managed documents, backup restore with safety copies, and backup activity history.
 - Local audit history for backup operations and detailed reminder-delivery records including attempts, provider IDs, recipients, and failure details.
 
-The current JavaFX workspace exposes Dashboard, All documents, Profiles, Assignments, Reminders, Archived, and System settings in the main navigation. Global Search, Compliance reports, Activity History, and reminder Delivery History are opened from their related workspace pages.
+The current JavaFX workspace exposes Dashboard, All documents, Profiles, Assignments, Reminders, Archived, System settings, and Activity history according to the signed-in user's permissions. Global Search, Compliance reports, and reminder Delivery History are opened from their related workspace pages.
 
 ## Reminder delivery
 
@@ -56,7 +58,7 @@ mvn javafx:run
 
 The project configures the Maven compiler to fork `javac`. This is important on the current Windows/JDK setup because JavaFX dependency compilation can otherwise fail with file-access errors.
 
-The database is created at `data/permitping.db`, managed files are stored under `data/documents/`, and backups are stored under `data/backups/`. These runtime files are ignored by Git.
+The database is created at `data/permitping.db`, managed files are stored under `data/documents/`, and portable backup bundles are stored under `data/backups/`. New backups use `.zip` bundles containing both the database and managed files; older `.db` database-only backups can still be restored. These runtime files are ignored by Git.
 
 ## Architecture
 
@@ -73,7 +75,7 @@ infrastructure/ SQLite repositories, backups, file storage, SendGrid integration
 
 SQLite schema upgrades run automatically through `PRAGMA user_version`. Existing databases receive new columns and tables without being recreated. Current migrations include archived records, profile IDs for document holders, notification preferences, reminder delivery history, authentication users, and persisted roles. The initial schema also includes document versions, requirement templates, project-template assignments, reminder settings, and assignment storage.
 
-Back up `data/permitping.db` before manually changing or moving the database.
+Create a verified backup bundle before manually changing or moving the database or managed files. Restoring a bundle keeps safety copies of the previous database and document directory next to the active data.
 
 ## Testing
 
@@ -83,17 +85,18 @@ Run:
 mvn test
 ```
 
-The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, reminders and delivery eligibility, authentication rules, document versioning, file storage, exports, SendGrid integration, JavaFX UI behavior, and SQLite persistence.
+The suite covers document validation and expiry rules, profile validation and lifecycle behavior, assignments and project readiness, reminders and delivery eligibility, authentication and password rules, document versioning, file storage, exports, SendGrid integration, JavaFX UI behavior, stale-record protection, and SQLite persistence. The current suite contains 68 passing tests.
 
 ## Operational notes
 
 - Local in-app reminder alerts do not mark reminders as delivered.
-- Email reminders are attempted on startup when delivery is configured and can also be triggered manually from the Reminders page.
+- Email reminders are attempted on startup, every 15 minutes while the application is open, and manually from the Reminders page when delivery is configured.
 - Delivery history records recipient, status, timestamp, provider ID, and failure details.
 - A local in-app alert is only a local alert; it is never treated as contractor delivery.
-- No SMS provider or background Windows scheduler is connected yet.
-- Activity History currently records backup-related audit events; reminder delivery has its own detailed history page.
-- Authentication, built-in roles, custom roles, and permission checks are implemented in the domain/application and SQLite layers, but are not yet wired into the current JavaFX shell as a login or user-management flow.
+- A successful backup restore stops reminder work and returns to sign-in so the restored database and permissions are loaded into a fresh workspace.
+- No SMS provider or Windows startup scheduler is connected yet; background checks run while PermitPing is open.
+- Activity History currently records backup-related audit events; reminder delivery has its own detailed history page. Users with audit permission can open Activity history directly from the main navigation.
+- PermitPing now requires a local sign-in before opening the workspace; the first launch creates the initial administrator account. Role permissions control workspace navigation and mutation controls. Built-in roles, custom roles, and permission checks are implemented in the domain/application and SQLite layers, with administrator user-management screens available from System settings. Users can change their own password, and administrators can reset another user's password.
 - The application currently has no hosted API, encrypted cloud storage, templated HTML email, unsubscribe workflow, or provider retry queue.
 
 ## License

@@ -45,7 +45,7 @@ class ProjectReadinessTest {
             RequirementTemplate template = templates.list().stream().filter(t -> t.name().equals("Electrical subcontractor")).findFirst().orElseThrow();
             templates.assign("Electrical Job", template.id());
             DocumentService documents = new DocumentService(new InMemoryRepository(new ArrayList<>(List.of(
-                document("Insurance", "Electrical Job", 90, null)
+                document("Insurance", "electrical job", 90, null)
             ))), CLOCK);
             ProjectReadiness readiness = new ProjectReadinessService(documents,
                 new FileStorage(Files.createTempDirectory("permitping-template-files")), CLOCK, templates).list().get(0);
